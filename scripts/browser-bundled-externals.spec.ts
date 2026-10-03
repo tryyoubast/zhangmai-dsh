@@ -124,4 +124,21 @@ describe('browser dependency discovery', () => {
       .toBe(join(root, 'packages/client/static/src/index.ts'))
     expect(aliases[0]!.find.test('@fixture/static-extra')).toBe(false)
   })
+
+  it('pins directory aliases to the TypeScript entry when generated JavaScript is present', () => {
+    const root = fixture()
+    write(root, 'tsconfig.base.json', JSON.stringify({
+      compilerOptions: {
+        module: 'esnext', target: 'es2022', jsx: 'react-jsx',
+        paths: { '@fixture/static': ['./packages/client/static/src'] },
+      },
+    }))
+    write(root, 'packages/client/static/src/index.ts', 'export const value = 1')
+    write(root, 'packages/client/static/src/index.js', 'export const value = 2')
+
+    const aliases = browserSourceAliases(root)
+
+    expect('@fixture/static'.replace(aliases[0]!.find, aliases[0]!.replacement))
+      .toBe(join(root, 'packages/client/static/src/index.ts'))
+  })
 })

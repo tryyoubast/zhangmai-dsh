@@ -1,0 +1,83 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1789689600000,
+      "tag": "0001_auth_workspace_novel_ai",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1790131200000,
+      "tag": "0002_workspace_drafts_and_hardening",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790726400000,
+      "tag": "0003_remove_redundant_prefix_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790812800000,
+      "tag": "0004_novel_longform_context",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790899200000,
+      "tag": "0005_longform_publication_hardening",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790985600000,
+      "tag": "0006_publication_and_rollback",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791072000000,
+      "tag": "0007_secure_rollback",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791158400000,
+      "tag": "0008_generation_results",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791244800000,
+      "tag": "0009_generation_queue_payload",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791331200000,
+      "tag": "0010_generation_queue_claim",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791417600000,
+      "tag": "0011_generation_claim_rls_hardening",
+      "breakpoints": true
+    }
+  ]
+}

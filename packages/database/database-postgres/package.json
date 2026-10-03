@@ -1,0 +1,48 @@
+{
+  "name": "@deepseek-ai/dsh-database-postgres",
+  "description": "PostgreSQL connection, Drizzle schema, and migration foundation for multi-tenant authoring services",
+  "version": "0.1.5-rc.2",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "packages/database/database-postgres"
+  },
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/types/**/*.d.ts",
+    "migrations/**/*.sql",
+    "migrations/meta/_journal.json",
+    "scripts/**/*.sql",
+    "scripts/**/*.js",
+    "drizzle.config.ts"
+  ],
+  "scripts": {
+    "test": "pnpm --dir ../../../ exec node node_modules/vitest/vitest.mjs run --config vitest.config.ts packages/database/database-postgres/tests",
+    "db:migrate": "node scripts/migrate.js",
+    "db:check": "drizzle-kit check --config drizzle.config.ts",
+    "pack:check": "pnpm pack --dry-run"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "drizzle-orm": "^0.44.7",
+    "pg": "^8.16.3"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.15.5",
+    "drizzle-kit": "^0.31.4"
+  }
+}

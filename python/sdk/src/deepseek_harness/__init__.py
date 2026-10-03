@@ -1,6 +1,7 @@
 from .api import DeepSeekHarness, DeepSeekHarnessConfig, RunResult, Session
+from .authoring import AuthoringAuthState, AuthoringClient, AuthoringClientConfig, WorkspaceInfo
 from .client import HarnessClient, HarnessConfig
-from .errors import SdkProtocolError
+from .errors import AuthoringApiError, SdkProtocolError
 from .models import IncomingRequest, InitializeResponse, JsonObject, Notification, ServerInfo
 
 __all__ = [
@@ -16,4 +17,9 @@ __all__ = [
     "JsonObject",
     "Notification",
     "ServerInfo",
+    "AuthoringClient",
+    "AuthoringClientConfig",
+    "AuthoringAuthState",
+    "AuthoringApiError",
+    "WorkspaceInfo",
 ]

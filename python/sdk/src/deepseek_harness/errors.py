@@ -21,3 +21,12 @@ class JsonRpcError(HarnessError):
         self.code = code
         self.message = message
         self.data = data
+
+
+class AuthoringApiError(HarnessError):
+    """Raised when the remote authoring API rejects a request."""
+
+    def __init__(self, status: int, error: str) -> None:
+        super().__init__(f"authoring API request failed ({status}): {error}")
+        self.status = status
+        self.error = error
