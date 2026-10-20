@@ -78,6 +78,13 @@
       "when": 1791417600000,
       "tag": "0011_generation_claim_rls_hardening",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1791504000000,
+      "tag": "0012_generation_context_snapshots",
+      "breakpoints": true
     }
   ]
 }

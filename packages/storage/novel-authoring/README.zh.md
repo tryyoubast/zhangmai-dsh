@@ -15,7 +15,7 @@ kind: "package-reference"
 
 `WorkspaceAuthoringService` 管理工作区和小说创建、成员邀请与撤销、角色变更、所有权转移以及归档／恢复。`ProposalReviewService` 将生成提案绑定到草稿目标，并支持批准、拒绝和重新打开。`ProposalPublicationService` 在审核者授权后调用数据库侧的发布与回滚事务。
 
-`LongformAuthoringService` 持久化章节草稿、章节版本、摘要以及一次生成任务实际选用的上下文条目。它校验 SHA-256 和字节数：较小正文存储在 PostgreSQL 文本列，超过 1 MiB 的正文必须提供对象存储元数据。章节、摘要、事实、时间线和上下文记录持久化后，即使浏览器或服务重启，也能继续写作。
+`LongformAuthoringService` 持久化章节草稿、章节版本、摘要以及一次生成任务实际选用的上下文条目，包括提交给模型的原文片段和选取时的来源生命周期状态。它校验 SHA-256 和字节数：较小正文存储在 PostgreSQL 文本列，超过 1 MiB 的正文必须提供对象存储元数据。章节、摘要、事实、时间线和上下文记录持久化后，即使浏览器或服务重启，也能继续写作。
 
 `LongformGenerationService` 提供与模型 Provider 无关的生成边界。它按工作区和小说检索候选上下文，排序并记录一次生成实际使用的上下文，校验结构化草稿输出，并通过幂等键去重重试。如果服务在上下文持久化后中断，重试会复用已记录的上下文，不会静默选择另一组内容。`DeepSeekNovelGenerationAdapter` 提供基于 fetch 的结构化 JSON 适配器，`GenerationMaterializationService` 将校验后的记录映射到固定草稿表并创建审核提案，`NovelGenerationWorkflowService` 负责生成任务生命周期、可选的生成后抽取、物化和安全失败码。宿主可以注入抽取适配器，把章节结果转成需要审核的摘要、事实和时间线草稿，模型仍然没有 SQL 权限。
 
@@ -23,7 +23,7 @@ kind: "package-reference"
 
 生成请求的 `limit: 0` 明确表示不检索也不保存上下文；如果后续需要根据已保存上下文继续生成，应使用大于零的限制值。
 
-`PostgresNovelContextRepository` 是生产检索适配器。它在 `withRequestContext` 事务中读取大纲、章节、摘要、事实、时间线和小说实体，限制片段大小，并在服务重启后复用片段前校验已保存的哈希。宿主仍需注入真实 LLM 适配器和持久化结果仓库；生产结果仓库必须实现 `withIdempotencyLock` 或等价的数据库级幂等声明/锁。
+`PostgresNovelContextRepository` 是生产检索适配器。它在 `withRequestContext` 事务中读取大纲、章节、摘要、事实、时间线和小说实体，限制片段大小，并在写入新快照前校验哈希。重试和续写按原顺序重放数据库快照，不会再次读取来源实体。宿主仍需注入真实 LLM 适配器和持久化结果仓库；生产结果仓库必须实现 `withIdempotencyLock` 或等价的数据库级幂等声明/锁。
 
 ## 安全约定
 

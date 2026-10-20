@@ -1,6 +1,5 @@
-import { rankContextCandidates } from './index.ts'
+import { rankContextCandidates, type ContextCandidate } from './index.ts'
 import type {
-  ContextCandidate,
   GenerationContextSelectionInput,
   LongformAuthoringService,
 } from './index.ts'
@@ -15,7 +14,7 @@ export interface ContextCandidateQuery {
 /** Host-owned retrieval seam for persisted novel context. */
 export interface PersistedContextCandidateRepository {
   findCandidates(query: ContextCandidateQuery): Promise<readonly ContextCandidate[]>
-  /** Rehydrate source excerpts for a previously recorded context selection. */
+  /** Retrieve source excerpts for a new selection; saved snapshots never use this method. */
   hydrateContext?(input: {
     readonly workspaceId: string
     readonly novelId: string
@@ -37,6 +36,10 @@ export interface PersistedGenerationContextItem {
   readonly sourceId: string
   readonly rank: number
   readonly excerptHash: string
+  /** Exact bounded text submitted to the model for this run. */
+  readonly excerpt: string | null
+  /** Source lifecycle state captured when the context was selected. */
+  readonly sourceStatus: string | null
   readonly tokenCount: number
   readonly selectionReason: string
 }
@@ -184,7 +187,13 @@ function contextFromPersisted(
         || item.generationRunId !== expected.generationRunId) {
         throw new Error('persisted generation context does not match the requested workspace, novel, or run')
       }
-      return item
+      if (item.excerpt === null || item.sourceStatus === null) {
+        throw new Error('persisted generation context snapshot is unavailable')
+      }
+      if (!isContextStatus(item.sourceStatus)) {
+        throw new Error('persisted generation context snapshot has an invalid source status')
+      }
+      return { ...item, excerpt: item.excerpt, sourceStatus: item.sourceStatus }
     })
     .slice()
     .sort((left, right) => left.rank - right.rank)
@@ -193,49 +202,26 @@ function contextFromPersisted(
       sourceId: item.sourceId,
       workspaceId: item.workspaceId,
       novelId: item.novelId,
-      status: 'draft' as const,
+      status: item.sourceStatus as ContextCandidate['status'],
       relevanceScore: 0,
       recencyScore: 0,
       excerptHash: item.excerptHash,
+      excerpt: item.excerpt,
       tokenCount: item.tokenCount,
       selectionReason: item.selectionReason,
     }))
 }
 
-async function restorePersistedContext(
-  repository: PersistedContextCandidateRepository,
+function isContextStatus(status: string): status is ContextCandidate['status'] {
+  return status === 'draft' || status === 'published' || status === 'archived' || status === 'deleted'
+}
+
+function restorePersistedContext(
   items: readonly PersistedGenerationContextItem[],
   expected: Pick<ContextCandidateQuery, 'workspaceId' | 'novelId'> & { generationRunId: string },
-): Promise<ContextCandidate[]> {
+): ContextCandidate[] {
   const base = contextFromPersisted(items, expected)
-  if (repository.hydrateContext === undefined) return base
-  const hydrated = await repository.hydrateContext({
-    workspaceId: expected.workspaceId,
-    novelId: expected.novelId,
-    items,
-  })
-  for (const candidate of hydrated) {
-    if (candidate.workspaceId !== undefined && candidate.workspaceId !== expected.workspaceId) {
-      throw new Error('context candidate workspace mismatch')
-    }
-    if (candidate.novelId !== undefined && candidate.novelId !== expected.novelId) {
-      throw new Error('context candidate novel mismatch')
-    }
-  }
-  const byKey = new Map(hydrated.map(candidate => [`${candidate.sourceType}\u0000${candidate.sourceId}`, candidate]))
-  return base.map((candidate) => {
-    const hydratedCandidate = byKey.get(`${candidate.sourceType}\u0000${candidate.sourceId}`)
-    if (hydratedCandidate === undefined) throw new Error('persisted generation context source is no longer available')
-    if (hydratedCandidate.excerptHash !== candidate.excerptHash || hydratedCandidate.tokenCount !== candidate.tokenCount) {
-      throw new Error('persisted generation context source has changed since selection')
-    }
-    return {
-      ...hydratedCandidate,
-      workspaceId: expected.workspaceId,
-      novelId: expected.novelId,
-      selectionReason: candidate.selectionReason ?? 'persisted_context',
-    }
-  })
+  return base
 }
 
 /**
@@ -276,7 +262,7 @@ export class LongformGenerationService {
       if (reader === undefined) throw new Error('context reader is required for continuation')
       const persisted = await reader.listContextItems(input.workspaceId, input.novelId, input.generationRunId)
       if (persisted.length === 0) throw new Error('no persisted context exists for continuation')
-      return this.runAdapter(input, await restorePersistedContext(this.dependencies.candidateRepository, persisted, input))
+      return this.runAdapter(input, restorePersistedContext(persisted, input))
     })
   }
 
@@ -298,7 +284,7 @@ export class LongformGenerationService {
     if (persisted.length > 0) {
       // A worker may have persisted context before it was interrupted. Reuse
       // that exact set so a retry cannot silently change the model's inputs.
-      selected = await restorePersistedContext(this.dependencies.candidateRepository, persisted, input)
+      selected = restorePersistedContext(persisted, input)
     } else {
       const candidates = await this.dependencies.candidateRepository.findCandidates({
         workspaceId: input.workspaceId,
@@ -317,7 +303,7 @@ export class LongformGenerationService {
         limit: selected.length,
       })
       for (const candidate of selected) this.validateCandidateScope(candidate, input)
-      selected = await this.hydrateSelectedContext(input, selected)
+      selected = this.validateSelectedContext(input, selected)
     }
     return this.runAdapter(input, selected)
   }
@@ -397,24 +383,17 @@ export class LongformGenerationService {
     }
   }
 
-  private async hydrateSelectedContext(
+  private validateSelectedContext(
     input: DraftGenerationInput,
     selected: readonly ContextCandidate[],
-  ): Promise<readonly ContextCandidate[]> {
-    const hydrateContext = this.dependencies.candidateRepository.hydrateContext
-    if (hydrateContext === undefined || selected.length === 0) return selected.slice()
-    const items: PersistedGenerationContextItem[] = selected.map((candidate, rank) => ({
-      workspaceId: input.workspaceId,
-      novelId: input.novelId,
-      generationRunId: input.generationRunId,
-      sourceType: candidate.sourceType,
-      sourceId: candidate.sourceId,
-      rank,
-      excerptHash: candidate.excerptHash ?? '',
-      tokenCount: candidate.tokenCount ?? 0,
-      selectionReason: candidate.selectionReason ?? 'persisted_context',
-    }))
-    return restorePersistedContext(this.dependencies.candidateRepository, items, input)
+  ): readonly ContextCandidate[] {
+    return selected.map((candidate) => {
+      this.validateCandidateScope(candidate, input)
+      if (candidate.excerpt === undefined || candidate.excerptHash === undefined || candidate.tokenCount === undefined) {
+        throw new Error('selected context candidates require exact excerpts, hashes, and token counts')
+      }
+      return candidate
+    })
   }
 
   private assertResultIdentity(

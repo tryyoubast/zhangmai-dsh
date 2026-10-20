@@ -43,7 +43,7 @@ describe('PostgreSQL authoring hardening migration', () => {
     const packageRoot = resolve(import.meta.dirname, '..')
     const migrationDirectory = resolveMigrationsDirectory(pathToFileURL(resolve(packageRoot, 'lib/index.js')).href)
     expect(migrationDirectory).toBe(resolve(packageRoot, 'migrations'))
-    expect(readFileSync(resolve(migrationDirectory, 'meta/_journal.json'), 'utf8')).toContain('0011_generation_claim_rls_hardening')
+    expect(readFileSync(resolve(migrationDirectory, 'meta/_journal.json'), 'utf8')).toContain('0012_generation_context_snapshots')
   })
 
   it('revokes public function access and defaults future objects to private', () => {
@@ -392,6 +392,25 @@ describe('PostgreSQL authoring hardening migration', () => {
     expect(sql).toContain('CREATE OR REPLACE FUNCTION app.generation_run_claim_allowed(')
     expect(sql.slice(start, end)).not.toContain("run.status = 'queued' AND run.agent_principal_id = 'user-request'")
     expect(sql).toContain('app.generation_run_claim_allowed(workspace_id, novel_id, id)')
+  })
+
+  it('adds durable generation-context snapshot columns without rewriting old rows', () => {
+    const migration = readFileSync(resolve(import.meta.dirname, '../migrations/0012_generation_context_snapshots.sql'), 'utf8')
+    const migrationDirectory = resolve(import.meta.dirname, '../migrations')
+    const journal = JSON.parse(readFileSync(resolve(migrationDirectory, 'meta/_journal.json'), 'utf8')) as { entries: { tag: string }[] }
+    const snapshot = JSON.parse(readFileSync(resolve(migrationDirectory, 'meta/0012_snapshot.json'), 'utf8')) as {
+      id: string
+      tables: Record<string, { columns: Record<string, unknown> }>
+    }
+    expect(journal.entries.at(-1)?.tag).toBe('0012_generation_context_snapshots')
+    expect(snapshot.id).toBe('0012_generation_context_snapshots')
+    expect(snapshot.tables['ai.generation_context_items']?.columns).toHaveProperty('excerpt')
+    expect(snapshot.tables['ai.generation_context_items']?.columns).toHaveProperty('source_status')
+    expect(migration).toContain('ADD COLUMN excerpt TEXT')
+    expect(migration).toContain('ADD COLUMN source_status TEXT')
+    expect(migration).toContain("source_status IN ('draft', 'published', 'archived', 'deleted')")
+    expect(migration).toContain('(excerpt IS NULL) = (source_status IS NULL)')
+    expect(migration).not.toMatch(/UPDATE\s+ai\.generation_context_items/iu)
   })
 
   it('keeps the durable generation lock and result writes on one transaction connection', () => {

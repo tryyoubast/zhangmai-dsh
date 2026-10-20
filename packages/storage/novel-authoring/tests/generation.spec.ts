@@ -18,6 +18,7 @@ const baseCandidate = (sourceId: string, status: ContextCandidate['status'] = 'p
   recencyScore: 1,
   excerptHash: `${sourceId}-hash`,
   tokenCount: 4,
+  excerpt: `Excerpt for ${sourceId}`,
 })
 
 class MemoryResults implements GenerationResultRepository {
@@ -58,6 +59,8 @@ class MemoryContext implements PersistedContextCandidateRepository {
       excerptHash: candidate.excerptHash ?? '',
       tokenCount: candidate.tokenCount ?? 0,
       selectionReason: candidate.selectionReason ?? 'ranked_context',
+      excerpt: candidate.excerpt ?? '',
+      sourceStatus: candidate.status,
     })))
     return selected
   }
@@ -225,17 +228,12 @@ describe('LongformGenerationService', () => {
     expect(calls).toBe(1)
   })
 
-  it('hydrates the exact selection returned by the durable context writer', async () => {
+  it('passes the exact excerpt returned by the durable context writer to the adapter', async () => {
     const selected = { ...baseCandidate('persisted'), workspaceId: 'w1', novelId: 'n1', excerptHash: 'persisted-hash', tokenCount: 4 }
     const writer = {
-      async selectAndRecordContext() { return [selected] },
+      async selectAndRecordContext() { return [{ ...selected, excerpt: 'The exact persisted excerpt.' }] },
     }
-    const candidateRepository: PersistedContextCandidateRepository = {
-      async findCandidates() { return [] },
-      async hydrateContext() {
-        return [{ ...selected, excerpt: 'The exact persisted excerpt.' }]
-      },
-    }
+    const candidateRepository: PersistedContextCandidateRepository = { async findCandidates() { return [] } }
     const seen: string[] = []
     const adapter: NovelGenerationAdapter = {
       async generate(input) {
@@ -253,11 +251,36 @@ describe('LongformGenerationService', () => {
     expect(result.selectedContext[0]?.excerpt).toBe('The exact persisted excerpt.')
   })
 
-  it('rejects hydrated context returned from another workspace', async () => {
-    const selected = { ...baseCandidate('persisted'), workspaceId: 'w1', novelId: 'n1', excerptHash: 'persisted-hash', tokenCount: 4 }
+  it('restores saved excerpts and source statuses after sources change or disappear', async () => {
+    const context = new MemoryContext()
+    context.candidates = [
+      { ...baseCandidate('published'), excerpt: 'Published at generation time.' },
+      { ...baseCandidate('draft', 'draft'), excerpt: 'Draft at generation time.' },
+    ]
+    const results = new MemoryResults()
+    const first = new LongformGenerationService(dependencies(context, results, { count: 0 }))
+    await first.generate({ workspaceId: 'w1', novelId: 'n1', generationRunId: 'run-snapshot', instruction: 'write', limit: 2, idempotencyKey: 'snapshot-1' })
+
+    context.candidates = []
+    const received: ContextCandidate[][] = []
+    const restarted = new LongformGenerationService({
+      ...dependencies(context, results, { count: 0 }),
+      adapter: { async generate(input) { received.push(input.context.slice()); return { records: [{ status: 'draft' }] } } },
+    })
+    const continued = await restarted.continue({
+      workspaceId: 'w1', novelId: 'n1', generationRunId: 'run-snapshot', instruction: 'continue', idempotencyKey: 'snapshot-2',
+    })
+    expect(received[0]?.map(item => [item.sourceId, item.excerpt, item.status])).toEqual([
+      ['published', 'Published at generation time.', 'published'],
+      ['draft', 'Draft at generation time.', 'draft'],
+    ])
+    expect(continued.selectedContext).toEqual(received[0])
+  })
+
+  it('rejects persisted context returned from another workspace', async () => {
+    const selected = { ...baseCandidate('persisted'), workspaceId: 'w2', novelId: 'n1', excerptHash: 'persisted-hash', tokenCount: 4 }
     const candidateRepository: PersistedContextCandidateRepository = {
       async findCandidates() { return [] },
-      async hydrateContext() { return [{ ...selected, workspaceId: 'w2', excerpt: 'foreign' }] },
     }
     const service = new LongformGenerationService({
       candidateRepository,

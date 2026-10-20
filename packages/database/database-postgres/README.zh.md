@@ -34,7 +34,7 @@ try {
 
 ## 数据库布局
 
-迁移日志包含十一个不可变条目。`0001_auth_workspace_novel_ai.sql` 创建认证、工作区、小说、AI 任务、提案和审计表；`0002_workspace_drafts_and_hardening.sql` 增加工作区一致性引用、Worker 仅草稿策略、生命周期保护和最小授权；`0003_remove_redundant_prefix_indexes.sql` 删除冗余前缀索引；`0004_novel_longform_context.sql` 增加大纲、章节、章节版本、摘要、事实、时间线和生成上下文选择；`0005_longform_publication_hardening.sql` 增加长篇记录生命周期字段和发布保护；`0006_publication_and_rollback.sql` 增加数据库侧发布与回滚事务；`0007_secure_rollback.sql` 将回滚限制为受控上下文中的调用者权限服务操作，并通过追加新版本保持版本号单调递增；`0008_generation_results.sql` 按幂等键持久化结构化生成结果，并限制为 Worker 草稿写入；`0009_generation_queue_payload.sql` 保存排队生成请求的指令和上下文限制，供 Worker 恢复执行；`0010_generation_queue_claim.sql` 允许绑定的 Worker 原子领取浏览器创建的排队任务；`0011_generation_claim_rls_hardening.sql` 将领取例外与已绑定 Worker 的写入条件分离，覆盖已经执行旧迁移的数据库。
+迁移日志包含十二个不可变条目。`0001_auth_workspace_novel_ai.sql` 创建认证、工作区、小说、AI 任务、提案和审计表；`0002_workspace_drafts_and_hardening.sql` 增加工作区一致性引用、Worker 仅草稿策略、生命周期保护和最小授权；`0003_remove_redundant_prefix_indexes.sql` 删除冗余前缀索引；`0004_novel_longform_context.sql` 增加大纲、章节、章节版本、摘要、事实、时间线和生成上下文选择；`0005_longform_publication_hardening.sql` 增加长篇记录生命周期字段和发布保护；`0006_publication_and_rollback.sql` 增加数据库侧发布与回滚事务；`0007_secure_rollback.sql` 将回滚限制为受控上下文中的调用者权限服务操作，并通过追加新版本保持版本号单调递增；`0008_generation_results.sql` 按幂等键持久化结构化生成结果，并限制为 Worker 草稿写入；`0009_generation_queue_payload.sql` 保存排队生成请求的指令和上下文限制，供 Worker 恢复执行；`0010_generation_queue_claim.sql` 允许绑定的 Worker 原子领取浏览器创建的排队任务；`0011_generation_claim_rls_hardening.sql` 将领取例外与已绑定 Worker 的写入条件分离，覆盖已经执行旧迁移的数据库；`0012_generation_context_snapshots.sql` 保存生成实际使用的上下文片段及来源状态，以便重放。
 
 AI 只能在这些固定表中创建记录，没有 PostgreSQL DDL 权限。新增稳定实体类型必须通过经过审查的版本化迁移实现，不能由模型生成 SQL。
 
@@ -66,4 +66,4 @@ Worker 只能在绑定工作区中写草稿实体和草稿版本。审核者先�
 
 ## 当前限制
 
-- 本包负责数据库基础设施和数据库级强制规则，不实现注册、密码哈希、HTTP 认证、Redis 限流、邮件、Web 审核或小说创作编排服务。调用方负责校验带版本的 AI JSON Schema，并设置认证后的事务上下文。如果旧生成任务无法唯一对应到一本小说，或存在目标为空的非草稿创建提案，迁移 `0002` 会中止并报告；修复这些记录后再重试。长篇记录和发布加固由迁移 `0004`、`0005` 提供，发布由 `0006` 提供，安全且保持版本递增的回滚由 `0007` 提供，生成结果的持久化幂等由 `0008` 提供，排队请求恢复由 `0009` 提供，原子领取由 `0010` 提供，既有数据库的 RLS 修复由 `0011` 提供；确认有可恢复备份后使用受控迁移入口执行全部条目。
+- 本包负责数据库基础设施和数据库级强制规则，不实现注册、密码哈希、HTTP 认证、Redis 限流、邮件、Web 审核或小说创作编排服务。调用方负责校验带版本的 AI JSON Schema，并设置认证后的事务上下文。如果旧生成任务无法唯一对应到一本小说，或存在目标为空的非草稿创建提案，迁移 `0002` 会中止并报告；修复这些记录后再重试。长篇记录和发布加固由迁移 `0004`、`0005` 提供，发布由 `0006` 提供，安全且保持版本递增的回滚由 `0007` 提供，生成结果的持久化幂等由 `0008` 提供，排队请求恢复由 `0009` 提供，原子领取由 `0010` 提供，既有数据库的 RLS 修复由 `0011` 提供，上下文快照重放由 `0012` 提供；确认有可恢复备份后使用受控迁移入口执行全部条目。
