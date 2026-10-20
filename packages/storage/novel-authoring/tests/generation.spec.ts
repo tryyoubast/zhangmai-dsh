@@ -277,6 +277,25 @@ describe('LongformGenerationService', () => {
     expect(continued.selectedContext).toEqual(received[0])
   })
 
+  it('signals strict rerun for legacy context without snapshots and never queries current sources', async () => {
+    const context = new MemoryContext()
+    context.candidates = [baseCandidate('changed-source')]
+    context.persisted.set('legacy-run', [{
+      workspaceId: 'w1', novelId: 'n1', generationRunId: 'legacy-run', sourceType: 'chapter_summary',
+      sourceId: 'changed-source', rank: 0, excerptHash: 'old-hash', tokenCount: 4,
+      selectionReason: 'ranked_context', excerpt: null, sourceStatus: null,
+    }])
+    const findCandidates = vi.fn(context.findCandidates.bind(context))
+    context.findCandidates = findCandidates
+    const calls = { count: 0 }
+    const service = new LongformGenerationService(dependencies(context, new MemoryResults(), calls))
+    await expect(service.generate({
+      workspaceId: 'w1', novelId: 'n1', generationRunId: 'legacy-run', instruction: 'retry', limit: 1, idempotencyKey: 'legacy-key',
+    })).rejects.toMatchObject({ code: 'LEGACY_GENERATION_CONTEXT_REQUIRES_RERUN' })
+    expect(findCandidates).not.toHaveBeenCalled()
+    expect(calls.count).toBe(0)
+  })
+
   it('rejects persisted context returned from another workspace', async () => {
     const selected = { ...baseCandidate('persisted'), workspaceId: 'w2', novelId: 'n1', excerptHash: 'persisted-hash', tokenCount: 4 }
     const candidateRepository: PersistedContextCandidateRepository = {

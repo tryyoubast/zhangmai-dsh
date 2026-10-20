@@ -1,0 +1,15 @@
+{
+  "id": "0013_legacy_context_rerun_marker",
+  "prevId": "0012_generation_context_snapshots",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "ai.generation_context_items": {
+      "name": "generation_context_items",
+      "schema": "ai",
+      "columns": {
+        "requires_rerun": { "name": "requires_rerun", "type": "boolean", "primaryKey": false, "notNull": true, "default": false }
+      }
+    }
+  }
+}

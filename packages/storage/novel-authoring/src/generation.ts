@@ -4,6 +4,15 @@ import type {
   LongformAuthoringService,
 } from './index.ts'
 
+export class LegacyGenerationContextRequiresRerunError extends Error {
+  readonly code = 'LEGACY_GENERATION_CONTEXT_REQUIRES_RERUN'
+
+  constructor(readonly generationRunId: string) {
+    super(`generation run ${generationRunId} has legacy context without a restorable snapshot; retry with a new generationRunId and idempotencyKey`)
+    this.name = 'LegacyGenerationContextRequiresRerunError'
+  }
+}
+
 /** A query for candidates that is always scoped to one workspace and novel. */
 export interface ContextCandidateQuery {
   readonly workspaceId: string
@@ -188,7 +197,7 @@ function contextFromPersisted(
         throw new Error('persisted generation context does not match the requested workspace, novel, or run')
       }
       if (item.excerpt === null || item.sourceStatus === null) {
-        throw new Error('persisted generation context snapshot is unavailable')
+        throw new LegacyGenerationContextRequiresRerunError(expected.generationRunId)
       }
       if (!isContextStatus(item.sourceStatus)) {
         throw new Error('persisted generation context snapshot has an invalid source status')
