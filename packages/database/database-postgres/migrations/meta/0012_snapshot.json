@@ -1,0 +1,16 @@
+{
+  "id": "0012_generation_context_snapshots",
+  "prevId": "0011_generation_claim_rls_hardening",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "ai.generation_context_items": {
+      "name": "generation_context_items",
+      "schema": "ai",
+      "columns": {
+        "excerpt": { "name": "excerpt", "type": "text", "primaryKey": false, "notNull": false },
+        "source_status": { "name": "source_status", "type": "text", "primaryKey": false, "notNull": false }
+      }
+    }
+  }
+}

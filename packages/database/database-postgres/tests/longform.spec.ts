@@ -67,7 +67,7 @@ describe('long-form novel persistence migration', () => {
     const journal = JSON.parse(readFileSync(resolve(packageRoot, 'migrations/meta/_journal.json'), 'utf8')) as {
       entries: Array<{ tag: string }>
     }
-    expect(journal.entries.at(-1)?.tag).toBe('0011_generation_claim_rls_hardening')
+    expect(journal.entries.at(-1)?.tag).toBe('0012_generation_context_snapshots')
   })
 
   it('keeps composite chapter references enforceable', () => {

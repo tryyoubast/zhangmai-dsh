@@ -1015,6 +1015,10 @@ export interface GenerationContextItemInput {
   readonly sourceId: string
   readonly rank: number
   readonly excerptHash: string
+  /** Exact bounded text submitted to the model for this run. */
+  readonly excerpt: string
+  /** Source lifecycle state captured when the context was selected. */
+  readonly sourceStatus: ContextCandidate['status']
   readonly tokenCount: number
   readonly selectionReason: string
 }
@@ -1139,6 +1143,7 @@ export class LongformAuthoringService {
     for (const item of itemsInput) this.assertWorkspace(item.workspaceId)
     await this.withContext(async (db) => {
       for (const item of itemsInput) {
+        if (item.excerpt.trim() === '') throw new Error('context excerpts are required for durable replay')
         const [existing] = await db.select({ id: generationContextItems.id }).from(generationContextItems).where(and(
           eq(generationContextItems.generationRunId, item.generationRunId),
           eq(generationContextItems.sourceType, item.sourceType),
@@ -1158,18 +1163,27 @@ export class LongformAuthoringService {
       // One run gets one durable context set. The transaction advisory lock
       // closes the read/select/write race between multiple workers.
       await db.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`${input.workspaceId}:${input.novelId}:${input.generationRunId}`}, 0))`)
-      const toCandidate = (item: typeof generationContextItems.$inferSelect): ContextCandidate => ({
-        sourceType: item.sourceType,
-        sourceId: item.sourceId,
-        workspaceId: item.workspaceId,
-        novelId: item.novelId,
-        status: 'published',
-        relevanceScore: 0,
-        recencyScore: 0,
-        excerptHash: item.excerptHash,
-        tokenCount: item.tokenCount,
-        selectionReason: item.selectionReason,
-      })
+      const toCandidate = (item: typeof generationContextItems.$inferSelect): ContextCandidate => {
+        if (item.excerpt === null || item.sourceStatus === null) {
+          throw new Error('persisted generation context snapshot is unavailable')
+        }
+        if (!isContextCandidateStatus(item.sourceStatus)) {
+          throw new Error('persisted generation context snapshot has an invalid source status')
+        }
+        return {
+          sourceType: item.sourceType,
+          sourceId: item.sourceId,
+          workspaceId: item.workspaceId,
+          novelId: item.novelId,
+          status: item.sourceStatus,
+          relevanceScore: 0,
+          recencyScore: 0,
+          excerptHash: item.excerptHash,
+          excerpt: item.excerpt,
+          tokenCount: item.tokenCount,
+          selectionReason: item.selectionReason,
+        }
+      }
       const existing = await db.select().from(generationContextItems).where(and(
         eq(generationContextItems.workspaceId, input.workspaceId),
         eq(generationContextItems.novelId, input.novelId),
@@ -1178,8 +1192,8 @@ export class LongformAuthoringService {
       if (existing.length > 0) return existing.map(toCandidate)
       const selected = rankContextCandidates(input.candidates, input.limit)
       const values = selected.map((candidate, rank) => {
-        if (candidate.excerptHash === undefined || candidate.tokenCount === undefined) {
-          throw new Error('selected context candidates require excerpt hashes and token counts')
+        if (candidate.excerpt === undefined || candidate.excerptHash === undefined || candidate.tokenCount === undefined) {
+          throw new Error('selected context candidates require exact excerpts, hashes, and token counts')
         }
         return {
           workspaceId: input.workspaceId,
@@ -1189,6 +1203,8 @@ export class LongformAuthoringService {
           sourceId: candidate.sourceId,
           rank,
           excerptHash: candidate.excerptHash,
+          excerpt: candidate.excerpt,
+          sourceStatus: candidate.status,
           tokenCount: candidate.tokenCount,
           selectionReason: candidate.selectionReason ?? 'ranked_context',
         }
@@ -1224,6 +1240,10 @@ export class LongformAuthoringService {
   private withContext<T>(callback: (database: DshDatabase) => Promise<T>): Promise<T> {
     return withRequestContext(this.database, requestContext(this.principal), callback)
   }
+}
+
+function isContextCandidateStatus(status: string): status is ContextCandidate['status'] {
+  return status === 'draft' || status === 'published' || status === 'archived' || status === 'deleted'
 }
 
 export * from './generation.ts'

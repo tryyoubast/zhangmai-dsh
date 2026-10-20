@@ -48,5 +48,7 @@ describe('novel authoring Drizzle schema', () => {
     expect(schema.chapterVersions).toHaveProperty('contentStorageKind')
     expect(schema.chapterVersions).toHaveProperty('contentObjectKey')
     expect(schema.generationContextItems).toHaveProperty('generationRunId')
+    expect(schema.generationContextItems).toHaveProperty('excerpt')
+    expect(schema.generationContextItems).toHaveProperty('sourceStatus')
   })
 })
