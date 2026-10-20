@@ -28,6 +28,7 @@ kind: "package-group"
 | [`storage-json`](storage-json/README.zh.md) | 把每个单元存为一个人类可读的 JSON 文件 | 注册后端 `json` |
 | [`storage-sqlite`](storage-sqlite/README.zh.md) | 把单元作为 JSON 文档存进一个 SQLite 数据库 | 注册后端 `sqlite` |
 | [`storage-domain`](storage-domain/README.zh.md) | 在已路由后端之上提供经过 schema 校验、发出变更事件的 KV 领域 | `ctx.storageDomain` |
+| [`novel-authoring`](novel-authoring/README.zh.md) | 通过 PostgreSQL 服务持久化工作区隔离的小说草稿、章节、版本和生成上下文 | 服务 API |
 
 -----
 

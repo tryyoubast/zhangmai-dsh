@@ -28,6 +28,7 @@ The storage group keeps non-session application data across restarts, including 
 | [`storage-json`](storage-json/README.md) | Stores each unit as one human-readable JSON file | registers backend `json` |
 | [`storage-sqlite`](storage-sqlite/README.md) | Stores units as JSON documents in one SQLite database | registers backend `sqlite` |
 | [`storage-domain`](storage-domain/README.md) | Provides schema-validated, change-emitting KV domains over routed backends | `ctx.storageDomain` |
+| [`novel-authoring`](novel-authoring/README.md) | Persists workspace-scoped novel drafts, chapters, versions, and generation context through PostgreSQL services | service API |
 
 -----
 

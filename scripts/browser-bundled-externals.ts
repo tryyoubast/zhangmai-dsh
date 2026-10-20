@@ -1,6 +1,6 @@
 /** Resolve direct third-party browser inputs through the shipping build configurations, without emitting files. */
 
-import { globSync, readFileSync } from 'node:fs'
+import { existsSync, globSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -75,7 +75,11 @@ export function browserSourceAliases(root: string): { find: RegExp; replacement:
     const target = targets[0]
     if (target === undefined) throw new Error(`browser notices: ${name} has no source target in ${path}`)
     const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace('\\*', '(.*)')
-    return { find: new RegExp(`^${escaped}$`), replacement: resolve(root, target).replace('*', '$1') }
+    const replacement = resolve(root, target).replace('*', '$1')
+    const sourceEntry = !target.includes('*') && existsSync(resolve(replacement, 'index.ts'))
+      ? resolve(replacement, 'index.ts')
+      : replacement
+    return { find: new RegExp(`^${escaped}$`), replacement: sourceEntry }
   })
 }
 

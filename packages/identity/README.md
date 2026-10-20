@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-The identity group provides one anonymous id per harness home that the installation's telemetry, feedback, and DeepSeek requests attach to their records, so everything leaving one home can be recognized as coming from the same installation without identifying the user. There is nothing to configure: the id appears automatically the first time one of those features runs and stays stable until its file is deleted. The group has one package; this page maps it, and the package README owns the details.
+The identity group provides anonymous installation correlation and multi-user authentication primitives. The authentication package is server-side and owns password/token lifecycle contracts; it does not expose database credentials or raw token persistence to callers.
 
 ## Table of Contents
 
@@ -23,6 +23,7 @@ The identity group provides one anonymous id per harness home that the installat
 | Package | Role |
 |---|---|
 | [`anonymous-user-id`](anonymous-user-id/README.md) | Gives every harness home one anonymous id that telemetry, feedback, and DeepSeek requests attach to their records, so records from one installation can be recognized without identifying the user |
+| [`user-auth`](user-auth/README.md) | Provides Argon2id password hashing, email verification/reset lifecycle seams, opaque session/refresh tokens, and EdDSA access-token primitives |
 
 <a id="related-documentation"></a>
 ## Related documentation

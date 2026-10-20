@@ -30,6 +30,26 @@ with DeepSeekHarness(
 print(result.final_response)
 ```
 
+## 远程小说创作
+
+官方客户端 HTTP API 可使用 `AuthoringClient`。它只在内存中保存短期
+Access Token 和轮换中的 Refresh Token，工作区通过服务端校验的请求头传递，
+并提供草稿和审核接口，不暴露 SQL 或数据库凭据：
+
+```py
+from deepseek_harness import AuthoringClient, AuthoringClientConfig
+
+client = AuthoringClient(AuthoringClientConfig("https://writer.example/api"))
+client.login("writer@example.com", "a sufficiently long password", workspace_id="workspace-1")
+draft = client.generate_draft("novel-1", "创建一个雨夜开场", idempotency_key="chapter-1")
+client.review_proposal("proposal-1", "approved")
+```
+
+工作区成员关系和发布权限始终由服务端决定；`switch_workspace()` 只能修改请求的
+工作区请求头，不能绕过服务端 RLS。切换前请使用 `list_workspaces()` 校验服务端
+返回的成员列表；调用 `logout()` 会撤销会话并清除本地凭据。API 根地址必须是绝对
+HTTP(S) 地址，不能包含内嵌凭据、查询参数或片段。
+
 `DeepSeekHarness` 延迟启动运行时，并在调用 `close()` 或退出上下文管理器前复用该进程。首次 profile 握手通过 `initialize_timeout_seconds` 使用独立的 30 秒默认上限；普通轮次在未设置 `request_timeout_seconds` 时仍不设上限。超时诊断会指明所选 profile，并包含保留的运行时诊断。`cwd` 是 agent workspace；`runtime_cwd` 独立选择子进程工作目录。两者都会在启动前转成绝对路径。`provider`、`model`、可选的 `reasoning_effort` 和可选的正整数 `max_tokens` 通过 JSON-RPC 初始化发送。`base_url` 与 `api_key` 会显式覆盖子进程环境中的 `DEEPSEEK_BASE_URL` 与 `DEEPSEEK_API_KEY`。
 
 ## 自定义插件
