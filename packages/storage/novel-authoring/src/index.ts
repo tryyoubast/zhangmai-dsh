@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util'
 import {
   and,
   asc,
@@ -42,6 +43,27 @@ function requestContext(principal: AuthPrincipal): {
     actorType: principal.actorType,
     ...(principal.agentPrincipalId === undefined ? {} : { agentPrincipalId: principal.agentPrincipalId }),
   }
+}
+
+function comparable(value: unknown): unknown {
+  return value ?? null
+}
+
+/** Resolve a conflict only when the durable row still represents this request. */
+function resolveIdempotentConflict(
+  entity: string,
+  row: Record<string, unknown> | undefined,
+  expected: Record<string, unknown>,
+): string {
+  if (row === undefined || typeof row.id !== 'string') {
+    throw new Error(`${entity} idempotency conflict: conflicting row was not found`)
+  }
+  for (const [field, expectedValue] of Object.entries(expected)) {
+    if (!isDeepStrictEqual(comparable(row[field]), comparable(expectedValue))) {
+      throw new Error(`${entity} idempotency conflict: ${field} mismatch`)
+    }
+  }
+  return row.id
 }
 
 /** Fixed entity types that the model may author as records. */
@@ -264,11 +286,6 @@ export class NovelAuthoringService {
     if (input.instruction !== undefined && instruction === '') throw new Error('generation instruction is required')
     if (!Number.isSafeInteger(contextLimit) || contextLimit < 0 || contextLimit > 128) throw new Error('generation context limit is invalid')
     return this.withContext(async (db) => {
-      const [existing] = await db.select({ id: generationRuns.id })
-        .from(generationRuns)
-        .where(and(eq(generationRuns.workspaceId, input.workspaceId), eq(generationRuns.idempotencyKey, input.idempotencyKey)))
-        .limit(1)
-      if (existing !== undefined) return existing.id
       const [run] = await db.insert(generationRuns).values({
         workspaceId: input.workspaceId,
         novelId: input.novelId,
@@ -281,9 +298,25 @@ export class NovelAuthoringService {
         contextLimit,
         idempotencyKey: input.idempotencyKey,
         status: 'queued',
+      }).onConflictDoNothing({
+        target: [generationRuns.workspaceId, generationRuns.idempotencyKey],
       }).returning({ id: generationRuns.id })
-      if (run === undefined) throw new Error('generation run was not created')
-      return run.id
+      if (run !== undefined) return run.id
+      const [existing] = await db.select().from(generationRuns).where(and(
+        eq(generationRuns.workspaceId, input.workspaceId),
+        eq(generationRuns.idempotencyKey, input.idempotencyKey),
+      )).limit(1)
+      return resolveIdempotentConflict('generation run', existing, {
+        workspaceId: input.workspaceId,
+        novelId: input.novelId,
+        initiatedByUserId: this.principal.userId,
+        agentPrincipalId: this.principal.agentPrincipalId ?? 'user-request',
+        model: input.model,
+        promptVersion: input.promptVersion,
+        sourceSessionId: input.sourceSessionId,
+        instruction,
+        contextLimit,
+      })
     })
   }
 
@@ -382,11 +415,6 @@ export class NovelAuthoringService {
       throw new Error('updates require a positive base version')
     }
     return this.withContext(async (db) => {
-      const [existing] = await db.select({ id: generationProposals.id })
-        .from(generationProposals)
-        .where(and(eq(generationProposals.workspaceId, input.workspaceId), eq(generationProposals.idempotencyKey, input.idempotencyKey)))
-        .limit(1)
-      if (existing !== undefined) return existing.id
       const [proposal] = await db.insert(generationProposals).values({
         generationRunId: input.generationRunId,
         workspaceId: input.workspaceId,
@@ -400,9 +428,26 @@ export class NovelAuthoringService {
         conflictResult: input.conflictResult,
         status: 'draft',
         idempotencyKey: input.idempotencyKey,
+      }).onConflictDoNothing({
+        target: [generationProposals.workspaceId, generationProposals.idempotencyKey],
       }).returning({ id: generationProposals.id })
-      if (proposal === undefined) throw new Error('draft proposal was not created')
-      return proposal.id
+      if (proposal !== undefined) return proposal.id
+      const [existing] = await db.select().from(generationProposals).where(and(
+        eq(generationProposals.workspaceId, input.workspaceId),
+        eq(generationProposals.idempotencyKey, input.idempotencyKey),
+      )).limit(1)
+      return resolveIdempotentConflict('generation proposal', existing, {
+        workspaceId: input.workspaceId,
+        novelId: input.novelId,
+        generationRunId: input.generationRunId,
+        targetType: input.targetType,
+        targetId: input.targetId,
+        operation: input.operation,
+        baseVersionNo: input.baseVersionNo,
+        proposedContent: input.proposedContent,
+        validationResult: input.validationResult,
+        conflictResult: input.conflictResult,
+      })
     })
   }
 
@@ -411,11 +456,6 @@ export class NovelAuthoringService {
     assertGenerationWorker(this.principal)
     if (input.workspaceId !== this.principal.workspaceId) throw new Error('workspace context mismatch')
     return this.withContext(async (db) => {
-      const [existing] = await db.select({ id: characters.id })
-        .from(characters)
-        .where(and(eq(characters.workspaceId, input.workspaceId), eq(characters.sourceIdempotencyKey, input.idempotencyKey)))
-        .limit(1)
-      if (existing !== undefined) return existing.id
       const [character] = await db.insert(characters).values({
         workspaceId: input.workspaceId,
         novelId: input.novelId,
@@ -426,9 +466,22 @@ export class NovelAuthoringService {
         createdByUserId: this.principal.userId,
         sourceGenerationRunId: input.generationRunId,
         sourceIdempotencyKey: input.idempotencyKey,
+      }).onConflictDoNothing({
+        target: [characters.workspaceId, characters.sourceIdempotencyKey],
       }).returning({ id: characters.id })
-      if (character === undefined) throw new Error('character draft was not created')
-      return character.id
+      if (character !== undefined) return character.id
+      const [existing] = await db.select().from(characters).where(and(
+        eq(characters.workspaceId, input.workspaceId),
+        eq(characters.sourceIdempotencyKey, input.idempotencyKey),
+      )).limit(1)
+      return resolveIdempotentConflict('character', existing, {
+        workspaceId: input.workspaceId,
+        novelId: input.novelId,
+        sourceGenerationRunId: input.generationRunId,
+        name: input.name,
+        summary: input.summary,
+        attributesJsonb: input.attributes ?? {},
+      })
     })
   }
 
@@ -437,11 +490,6 @@ export class NovelAuthoringService {
     assertGenerationWorker(this.principal)
     this.assertWorkspace(input.workspaceId)
     return this.withContext(async (db) => {
-      const [existing] = await db.select({ id: entityRelations.id }).from(entityRelations).where(and(
-        eq(entityRelations.workspaceId, input.workspaceId),
-        eq(entityRelations.sourceIdempotencyKey, input.idempotencyKey),
-      )).limit(1)
-      if (existing !== undefined) return existing.id
       const [relation] = await db.insert(entityRelations).values({
         workspaceId: input.workspaceId,
         novelId: input.novelId,
@@ -457,9 +505,27 @@ export class NovelAuthoringService {
         createdByUserId: this.principal.userId,
         sourceGenerationRunId: input.generationRunId,
         sourceIdempotencyKey: input.idempotencyKey,
+      }).onConflictDoNothing({
+        target: [entityRelations.workspaceId, entityRelations.sourceIdempotencyKey],
       }).returning({ id: entityRelations.id })
-      if (relation === undefined) throw new Error('entity relation draft was not created')
-      return relation.id
+      if (relation !== undefined) return relation.id
+      const [existing] = await db.select().from(entityRelations).where(and(
+        eq(entityRelations.workspaceId, input.workspaceId),
+        eq(entityRelations.sourceIdempotencyKey, input.idempotencyKey),
+      )).limit(1)
+      return resolveIdempotentConflict('entity relation', existing, {
+        workspaceId: input.workspaceId,
+        novelId: input.novelId,
+        sourceGenerationRunId: input.generationRunId,
+        sourceEntityType: input.sourceEntityType,
+        sourceEntityId: input.sourceEntityId,
+        targetEntityType: input.targetEntityType,
+        targetEntityId: input.targetEntityId,
+        relationType: input.relationType,
+        strength: input.strength,
+        sourceVersionNo: input.sourceVersionNo,
+        attributesJsonb: input.attributes ?? {},
+      })
     })
   }
 
@@ -468,11 +534,6 @@ export class NovelAuthoringService {
     assertGenerationWorker(this.principal)
     this.assertWorkspace(input.workspaceId)
     return this.withContext(async (db) => {
-      const [existing] = await db.select({ id: characterSkills.id }).from(characterSkills).where(and(
-        eq(characterSkills.workspaceId, input.workspaceId),
-        eq(characterSkills.sourceIdempotencyKey, input.idempotencyKey),
-      )).limit(1)
-      if (existing !== undefined) return existing.id
       const [link] = await db.insert(characterSkills).values({
         workspaceId: input.workspaceId,
         novelId: input.novelId,
@@ -485,9 +546,24 @@ export class NovelAuthoringService {
         createdByUserId: this.principal.userId,
         sourceGenerationRunId: input.generationRunId,
         sourceIdempotencyKey: input.idempotencyKey,
+      }).onConflictDoNothing({
+        target: [characterSkills.workspaceId, characterSkills.sourceIdempotencyKey],
       }).returning({ id: characterSkills.id })
-      if (link === undefined) throw new Error('character skill draft was not created')
-      return link.id
+      if (link !== undefined) return link.id
+      const [existing] = await db.select().from(characterSkills).where(and(
+        eq(characterSkills.workspaceId, input.workspaceId),
+        eq(characterSkills.sourceIdempotencyKey, input.idempotencyKey),
+      )).limit(1)
+      return resolveIdempotentConflict('character skill', existing, {
+        workspaceId: input.workspaceId,
+        novelId: input.novelId,
+        sourceGenerationRunId: input.generationRunId,
+        characterId: input.characterId,
+        skillId: input.skillId,
+        relationType: input.relationType,
+        sourceVersionNo: input.sourceVersionNo,
+        attributesJsonb: input.attributes ?? {},
+      })
     })
   }
 
@@ -496,11 +572,6 @@ export class NovelAuthoringService {
     assertGenerationWorker(this.principal)
     this.assertWorkspace(input.workspaceId)
     return this.withContext(async (db) => {
-      const [existing] = await db.select({ id: storyFacts.id }).from(storyFacts).where(and(
-        eq(storyFacts.workspaceId, input.workspaceId),
-        eq(storyFacts.sourceIdempotencyKey, input.idempotencyKey),
-      )).limit(1)
-      if (existing !== undefined) return existing.id
       const [fact] = await db.insert(storyFacts).values({
         workspaceId: input.workspaceId,
         novelId: input.novelId,
@@ -513,9 +584,25 @@ export class NovelAuthoringService {
         createdByUserId: this.principal.userId,
         sourceGenerationRunId: input.generationRunId,
         sourceIdempotencyKey: input.idempotencyKey,
+      }).onConflictDoNothing({
+        target: [storyFacts.workspaceId, storyFacts.sourceIdempotencyKey],
+        where: sql`${storyFacts.sourceIdempotencyKey} IS NOT NULL`,
       }).returning({ id: storyFacts.id })
-      if (fact === undefined) throw new Error('story fact draft was not created')
-      return fact.id
+      if (fact !== undefined) return fact.id
+      const [existing] = await db.select().from(storyFacts).where(and(
+        eq(storyFacts.workspaceId, input.workspaceId),
+        eq(storyFacts.sourceIdempotencyKey, input.idempotencyKey),
+      )).limit(1)
+      return resolveIdempotentConflict('story fact', existing, {
+        workspaceId: input.workspaceId,
+        novelId: input.novelId,
+        sourceGenerationRunId: input.generationRunId,
+        factKey: input.factKey,
+        statement: input.statement,
+        attributesJsonb: input.attributes ?? {},
+        sourceChapterId: input.sourceChapterId,
+        sourceChapterVersionId: input.sourceChapterVersionId,
+      })
     })
   }
 
@@ -524,11 +611,6 @@ export class NovelAuthoringService {
     assertGenerationWorker(this.principal)
     this.assertWorkspace(input.workspaceId)
     return this.withContext(async (db) => {
-      const [existing] = await db.select({ id: timelineEvents.id }).from(timelineEvents).where(and(
-        eq(timelineEvents.workspaceId, input.workspaceId),
-        eq(timelineEvents.sourceIdempotencyKey, input.idempotencyKey),
-      )).limit(1)
-      if (existing !== undefined) return existing.id
       const [event] = await db.insert(timelineEvents).values({
         workspaceId: input.workspaceId,
         novelId: input.novelId,
@@ -543,9 +625,27 @@ export class NovelAuthoringService {
         createdByUserId: this.principal.userId,
         sourceGenerationRunId: input.generationRunId,
         sourceIdempotencyKey: input.idempotencyKey,
+      }).onConflictDoNothing({
+        target: [timelineEvents.workspaceId, timelineEvents.sourceIdempotencyKey],
+        where: sql`${timelineEvents.sourceIdempotencyKey} IS NOT NULL`,
       }).returning({ id: timelineEvents.id })
-      if (event === undefined) throw new Error('timeline event draft was not created')
-      return event.id
+      if (event !== undefined) return event.id
+      const [existing] = await db.select().from(timelineEvents).where(and(
+        eq(timelineEvents.workspaceId, input.workspaceId),
+        eq(timelineEvents.sourceIdempotencyKey, input.idempotencyKey),
+      )).limit(1)
+      return resolveIdempotentConflict('timeline event', existing, {
+        workspaceId: input.workspaceId,
+        novelId: input.novelId,
+        sourceGenerationRunId: input.generationRunId,
+        eventKey: input.eventKey,
+        title: input.title,
+        description: input.description,
+        sequenceNo: input.sequenceNo,
+        attributesJsonb: input.attributes ?? {},
+        sourceChapterId: input.sourceChapterId,
+        sourceChapterVersionId: input.sourceChapterVersionId,
+      })
     })
   }
 
@@ -555,11 +655,6 @@ export class NovelAuthoringService {
     this.assertWorkspace(input.workspaceId)
     if (!/^[0-9a-f]{64}$/u.test(input.contentSha256)) throw new Error('summary SHA-256 must be a 64-character hexadecimal digest')
     return this.withContext(async (db) => {
-      const [existing] = await db.select({ id: chapterSummaries.id }).from(chapterSummaries).where(and(
-        eq(chapterSummaries.workspaceId, input.workspaceId),
-        eq(chapterSummaries.sourceIdempotencyKey, input.idempotencyKey),
-      )).limit(1)
-      if (existing !== undefined) return existing.id
       const [summary] = await db.insert(chapterSummaries).values({
         workspaceId: input.workspaceId,
         novelId: input.novelId,
@@ -572,9 +667,25 @@ export class NovelAuthoringService {
         createdByUserId: this.principal.userId,
         sourceGenerationRunId: input.generationRunId,
         sourceIdempotencyKey: input.idempotencyKey,
+      }).onConflictDoNothing({
+        target: [chapterSummaries.workspaceId, chapterSummaries.sourceIdempotencyKey],
+        where: sql`${chapterSummaries.sourceIdempotencyKey} IS NOT NULL`,
       }).returning({ id: chapterSummaries.id })
-      if (summary === undefined) throw new Error('chapter summary draft was not created')
-      return summary.id
+      if (summary !== undefined) return summary.id
+      const [existing] = await db.select().from(chapterSummaries).where(and(
+        eq(chapterSummaries.workspaceId, input.workspaceId),
+        eq(chapterSummaries.sourceIdempotencyKey, input.idempotencyKey),
+      )).limit(1)
+      return resolveIdempotentConflict('chapter summary', existing, {
+        workspaceId: input.workspaceId,
+        novelId: input.novelId,
+        sourceGenerationRunId: input.generationRunId,
+        chapterId: input.chapterId,
+        chapterVersionId: input.chapterVersionId,
+        summaryKind: input.summaryKind,
+        contentText: input.contentText,
+        contentSha256: input.contentSha256,
+      })
     })
   }
 
@@ -608,11 +719,6 @@ export class NovelAuthoringService {
     assertGenerationWorker(this.principal)
     this.assertWorkspace(input.workspaceId)
     return this.withContext(async (db) => {
-      const [existing] = await db.select({ id: outlines.id }).from(outlines).where(and(
-        eq(outlines.workspaceId, input.workspaceId),
-        eq(outlines.sourceIdempotencyKey, input.idempotencyKey),
-      )).limit(1)
-      if (existing !== undefined) return existing.id
       const [outline] = await db.insert(outlines).values({
         workspaceId: input.workspaceId,
         novelId: input.novelId,
@@ -622,9 +728,22 @@ export class NovelAuthoringService {
         createdByUserId: this.principal.userId,
         sourceGenerationRunId: input.generationRunId,
         sourceIdempotencyKey: input.idempotencyKey,
+      }).onConflictDoNothing({
+        target: [outlines.workspaceId, outlines.sourceIdempotencyKey],
+        where: sql`${outlines.sourceIdempotencyKey} IS NOT NULL`,
       }).returning({ id: outlines.id })
-      if (outline === undefined) throw new Error('outline draft was not created')
-      return outline.id
+      if (outline !== undefined) return outline.id
+      const [existing] = await db.select().from(outlines).where(and(
+        eq(outlines.workspaceId, input.workspaceId),
+        eq(outlines.sourceIdempotencyKey, input.idempotencyKey),
+      )).limit(1)
+      return resolveIdempotentConflict('outline', existing, {
+        workspaceId: input.workspaceId,
+        novelId: input.novelId,
+        sourceGenerationRunId: input.generationRunId,
+        title: input.name,
+        contentJsonb: input.attributes ?? {},
+      })
     })
   }
 
@@ -635,11 +754,6 @@ export class NovelAuthoringService {
     assertGenerationWorker(this.principal)
     this.assertWorkspace(input.workspaceId)
     return this.withContext(async (db) => {
-      const [existing] = await db.select({ id: table.id }).from(table).where(and(
-        eq(table.workspaceId, input.workspaceId),
-        eq(table.sourceIdempotencyKey, input.idempotencyKey),
-      )).limit(1)
-      if (existing !== undefined) return existing.id
       const values = {
         workspaceId: input.workspaceId,
         novelId: input.novelId,
@@ -651,9 +765,22 @@ export class NovelAuthoringService {
         sourceGenerationRunId: input.generationRunId,
         sourceIdempotencyKey: input.idempotencyKey,
       }
-      const [entity] = await db.insert(table).values(values).returning({ id: table.id })
-      if (entity === undefined) throw new Error('novel draft was not created')
-      return entity.id
+      const [entity] = await db.insert(table).values(values).onConflictDoNothing({
+        target: [table.workspaceId, table.sourceIdempotencyKey],
+      }).returning({ id: table.id })
+      if (entity !== undefined) return entity.id
+      const [existing] = await db.select().from(table).where(and(
+        eq(table.workspaceId, input.workspaceId),
+        eq(table.sourceIdempotencyKey, input.idempotencyKey),
+      )).limit(1)
+      return resolveIdempotentConflict('novel draft', existing, {
+        workspaceId: input.workspaceId,
+        novelId: input.novelId,
+        sourceGenerationRunId: input.generationRunId,
+        name: input.name,
+        summary: input.summary,
+        attributesJsonb: input.attributes ?? {},
+      })
     })
   }
 
@@ -1079,11 +1206,6 @@ export class LongformAuthoringService {
     assertGenerationWorker(this.principal)
     this.assertWorkspace(input.workspaceId)
     return this.withContext(async (db) => {
-      const [existing] = await db.select({ id: chapters.id }).from(chapters).where(and(
-        eq(chapters.workspaceId, input.workspaceId),
-        eq(chapters.sourceIdempotencyKey, input.idempotencyKey),
-      )).limit(1)
-      if (existing !== undefined) return existing.id
       const [chapter] = await db.insert(chapters).values({
         workspaceId: input.workspaceId,
         novelId: input.novelId,
@@ -1094,9 +1216,23 @@ export class LongformAuthoringService {
         createdByUserId: this.principal.userId,
         sourceGenerationRunId: input.generationRunId,
         sourceIdempotencyKey: input.idempotencyKey,
+      }).onConflictDoNothing({
+        target: [chapters.workspaceId, chapters.sourceIdempotencyKey],
+        where: sql`${chapters.sourceIdempotencyKey} IS NOT NULL`,
       }).returning({ id: chapters.id })
-      if (chapter === undefined) throw new Error('chapter draft was not created')
-      return chapter.id
+      if (chapter !== undefined) return chapter.id
+      const [existing] = await db.select().from(chapters).where(and(
+        eq(chapters.workspaceId, input.workspaceId),
+        eq(chapters.sourceIdempotencyKey, input.idempotencyKey),
+      )).limit(1)
+      return resolveIdempotentConflict('chapter', existing, {
+        workspaceId: input.workspaceId,
+        novelId: input.novelId,
+        sourceGenerationRunId: input.generationRunId,
+        chapterNo: input.chapterNo,
+        title: input.title,
+        summary: input.summary,
+      })
     })
   }
 
@@ -1110,11 +1246,6 @@ export class LongformAuthoringService {
       await this.objectStorage.assertAvailable()
     }
     return this.withContext(async (db) => {
-      const [existing] = await db.select({ id: chapterVersions.id }).from(chapterVersions).where(and(
-        eq(chapterVersions.workspaceId, input.workspaceId),
-        eq(chapterVersions.sourceIdempotencyKey, input.idempotencyKey),
-      )).limit(1)
-      if (existing !== undefined) return existing.id
       const [version] = await db.insert(chapterVersions).values({
         workspaceId: input.workspaceId,
         novelId: input.novelId,
@@ -1131,9 +1262,28 @@ export class LongformAuthoringService {
         createdByUserId: this.principal.userId,
         sourceGenerationRunId: input.generationRunId,
         sourceIdempotencyKey: input.idempotencyKey,
+      }).onConflictDoNothing({
+        target: [chapterVersions.workspaceId, chapterVersions.sourceIdempotencyKey],
+        where: sql`${chapterVersions.sourceIdempotencyKey} IS NOT NULL`,
       }).returning({ id: chapterVersions.id })
-      if (version === undefined) throw new Error('chapter version draft was not created')
-      return version.id
+      if (version !== undefined) return version.id
+      const [existing] = await db.select().from(chapterVersions).where(and(
+        eq(chapterVersions.workspaceId, input.workspaceId),
+        eq(chapterVersions.sourceIdempotencyKey, input.idempotencyKey),
+      )).limit(1)
+      return resolveIdempotentConflict('chapter version', existing, {
+        workspaceId: input.workspaceId,
+        novelId: input.novelId,
+        sourceGenerationRunId: input.generationRunId,
+        chapterId: input.chapterId,
+        versionNo: input.versionNo,
+        contentSha256: input.contentSha256,
+        contentBytes: input.contentBytes,
+        contentStorageKind: input.contentStorageKind,
+        contentText: input.contentText,
+        contentObjectKey: input.contentObjectKey,
+        summary: input.summary,
+      })
     })
   }
 
@@ -1144,13 +1294,28 @@ export class LongformAuthoringService {
     await this.withContext(async (db) => {
       for (const item of itemsInput) {
         if (item.excerpt.trim() === '') throw new Error('context excerpts are required for durable replay')
-        const [existing] = await db.select({ id: generationContextItems.id }).from(generationContextItems).where(and(
+        const [inserted] = await db.insert(generationContextItems).values(item).onConflictDoNothing({
+          target: [generationContextItems.generationRunId, generationContextItems.sourceType, generationContextItems.sourceId],
+        }).returning({ id: generationContextItems.id })
+        if (inserted !== undefined) continue
+        const [existing] = await db.select().from(generationContextItems).where(and(
           eq(generationContextItems.generationRunId, item.generationRunId),
           eq(generationContextItems.sourceType, item.sourceType),
           eq(generationContextItems.sourceId, item.sourceId),
         )).limit(1)
-        if (existing !== undefined) continue
-        await db.insert(generationContextItems).values(item)
+        resolveIdempotentConflict('generation context item', existing, {
+          workspaceId: item.workspaceId,
+          novelId: item.novelId,
+          generationRunId: item.generationRunId,
+          sourceType: item.sourceType,
+          sourceId: item.sourceId,
+          rank: item.rank,
+          excerptHash: item.excerptHash,
+          excerpt: item.excerpt,
+          sourceStatus: item.sourceStatus,
+          tokenCount: item.tokenCount,
+          selectionReason: item.selectionReason,
+        })
       }
     })
   }
