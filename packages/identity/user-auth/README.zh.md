@@ -30,6 +30,8 @@ kind: "package-reference"
 
 使用 `UserAuthService` 时必须提供事务性的 `AuthStore`。不透明 Token 只能保存 `hashToken()` 结果。使用 `RefreshTokenService` 轮换 Refresh Token，并在检测到重用时撤销整个 Token Family。EdDSA 私钥必须放在 Secret Manager，Access Token Claims 不得包含邮箱、密码或其他 PII。
 
+邮箱验证是一个必需的存储操作：底层 Store 必须在原子事务中消费未过期且未使用的令牌，并激活对应用户。
+
 ## 模型体验
 
 本包没有模型可见内容。认证决定留在 HTTP／客户端边界，并以服务端解析的身份对象传给领域服务。

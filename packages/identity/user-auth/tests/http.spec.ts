@@ -52,17 +52,14 @@ class HttpStore implements AuthLifecycleStore, RefreshTokenStore {
     this.sessions.set(id, { userId: input.userId, tokenHash: input.tokenHash })
     return Promise.resolve({ id })
   }
-  consumeEmailVerificationToken(tokenHashValue: string, now: Date): Promise<string | null> {
+  async consumeAndActivateEmailVerification(tokenHashValue: string, now: Date): Promise<boolean> {
     const token = this.verification.get(tokenHashValue)
-    if (token === undefined || token.consumedAt !== null || token.expiresAt <= now) return Promise.resolve(null)
-    token.consumedAt = now
-    return Promise.resolve(token.userId)
-  }
-  activateUser(userId: string, now: Date): Promise<void> {
-    const user = this.users.get(userId)
+    if (token === undefined || token.consumedAt !== null || token.expiresAt <= now) return false
+    const user = this.users.get(token.userId)
     if (user === undefined) throw new Error('user missing')
-    this.users.set(userId, { ...user, status: 'active', emailVerifiedAt: now })
-    return Promise.resolve()
+    token.consumedAt = now
+    this.users.set(token.userId, { ...user, status: 'active', emailVerifiedAt: now })
+    return true
   }
   createPasswordResetToken(userId: string, tokenHashValue: string, expiresAt: Date): Promise<void> {
     this.resets.set(tokenHashValue, { userId, expiresAt, consumedAt: null })

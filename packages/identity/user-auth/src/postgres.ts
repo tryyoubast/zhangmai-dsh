@@ -146,17 +146,24 @@ export class PostgresAuthStore implements AuthLifecycleStore, RefreshTokenStore 
     return session
   }
 
-  async consumeEmailVerificationToken(tokenHash: string, now: Date): Promise<string | null> {
-    const [token] = await this.database.db.update(emailVerificationTokens).set({ consumedAt: now }).where(and(
-      eq(emailVerificationTokens.tokenHash, tokenHash),
-      isNull(emailVerificationTokens.consumedAt),
-      gt(emailVerificationTokens.expiresAt, now),
-    )).returning({ userId: emailVerificationTokens.userId })
-    return token?.userId ?? null
-  }
+  async consumeAndActivateEmailVerification(tokenHash: string, now: Date): Promise<boolean> {
+    return this.database.db.transaction(async (transaction) => {
+      const db = transaction as unknown as DshDatabase
+      const [token] = await db.update(emailVerificationTokens).set({ consumedAt: now }).where(and(
+        eq(emailVerificationTokens.tokenHash, tokenHash),
+        isNull(emailVerificationTokens.consumedAt),
+        gt(emailVerificationTokens.expiresAt, now),
+      )).returning({ userId: emailVerificationTokens.userId })
+      if (token === undefined) return false
 
-  async activateUser(userId: string, now: Date): Promise<void> {
-    await this.database.db.update(users).set({ status: 'active', emailVerifiedAt: now, updatedAt: now }).where(eq(users.id, userId))
+      const activatedUsers = await db.update(users).set({
+        status: 'active',
+        emailVerifiedAt: now,
+        updatedAt: now,
+      }).where(eq(users.id, token.userId)).returning({ id: users.id })
+      if (activatedUsers.length !== 1) throw new Error('user was not activated')
+      return true
+    })
   }
 
   async createPasswordResetToken(userId: string, tokenHash: string, expiresAt: Date): Promise<void> {

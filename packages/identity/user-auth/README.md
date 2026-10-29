@@ -30,6 +30,8 @@ Browser login returns a `__Host-dsh_session` cookie with `HttpOnly`, `Secure`, `
 
 Use `UserAuthService` with a transactional `AuthStore`. Persist only `hashToken()` results for opaque tokens. Use `RefreshTokenService` to rotate refresh tokens and revoke a token family after reuse. Keep EdDSA private keys in a secret manager and keep access-token claims free of email, password, and other PII.
 
+Email verification is one required store operation: the backing store consumes an unexpired, unused token and activates its user atomically.
+
 ## Model Experience
 
 Nothing in this package is model-visible. Authentication decisions remain in the HTTP/client boundary and are passed to domain services as a server-resolved principal.

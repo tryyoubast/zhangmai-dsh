@@ -203,8 +203,7 @@ export interface AuthStore {
 
 /** Additional persistence operations required for verification and reset flows. */
 export interface AuthLifecycleStore extends AuthStore {
-  consumeEmailVerificationToken(tokenHash: string, now: Date): Promise<string | null>
-  activateUser(userId: string, now: Date): Promise<void>
+  consumeAndActivateEmailVerification(tokenHash: string, now: Date): Promise<boolean>
   createPasswordResetToken(userId: string, tokenHash: string, expiresAt: Date): Promise<void>
   consumePasswordResetToken(tokenHash: string, now: Date): Promise<string | null>
   updatePassword(userId: string, passwordHash: string, now: Date): Promise<void>
@@ -298,10 +297,7 @@ export class UserAuthService {
   /** Consume an email token once and activate the associated pending account. */
   async verifyEmail(token: string): Promise<boolean> {
     const store = this.lifecycleStore()
-    const userId = await store.consumeEmailVerificationToken(hashToken(token), this.now())
-    if (userId === null) return false
-    await store.activateUser(userId, this.now())
-    return true
+    return store.consumeAndActivateEmailVerification(hashToken(token), this.now())
   }
 
   /** Issue a one-time password reset token without revealing unknown accounts. */
@@ -337,7 +333,7 @@ export class UserAuthService {
   private lifecycleStore(): AuthLifecycleStore {
     const store = this.store as AuthLifecycleStore
     for (const method of [
-      'consumeEmailVerificationToken', 'activateUser', 'createPasswordResetToken',
+      'consumeAndActivateEmailVerification', 'createPasswordResetToken',
       'consumePasswordResetToken', 'updatePassword', 'revokeUserSessions',
     ] as const) {
       if (typeof store[method] !== 'function') throw new Error(`authentication store does not implement ${method}`)

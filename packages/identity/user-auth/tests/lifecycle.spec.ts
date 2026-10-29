@@ -36,17 +36,14 @@ class LifecycleStore implements AuthLifecycleStore {
   recordFailedLogin(): Promise<void> { return Promise.resolve() }
   recordSuccessfulLogin(): Promise<void> { return Promise.resolve() }
   createSession(): Promise<{ id: string }> { return Promise.resolve({ id: 'session-1' }) }
-  consumeEmailVerificationToken(tokenHashValue: string, now: Date): Promise<string | null> {
+  async consumeAndActivateEmailVerification(tokenHashValue: string, now: Date): Promise<boolean> {
     const token = this.verification.get(tokenHashValue)
-    if (token === undefined || token.consumedAt !== null || token.expiresAt <= now) return Promise.resolve(null)
-    token.consumedAt = now
-    return Promise.resolve(token.userId)
-  }
-  activateUser(userId: string, now: Date): Promise<void> {
-    const user = this.users.get(userId)
+    if (token === undefined || token.consumedAt !== null || token.expiresAt <= now) return false
+    const user = this.users.get(token.userId)
     if (user === undefined) throw new Error('user missing')
-    this.users.set(userId, { ...user, status: 'active', emailVerifiedAt: now })
-    return Promise.resolve()
+    token.consumedAt = now
+    this.users.set(token.userId, { ...user, status: 'active', emailVerifiedAt: now })
+    return true
   }
   createPasswordResetToken(userId: string, tokenHashValue: string, expiresAt: Date): Promise<void> {
     this.resets.set(tokenHashValue, { userId, expiresAt, consumedAt: null })
@@ -95,6 +92,31 @@ describe('authentication lifecycle', () => {
     await expect(service.verifyEmail(registration.verificationToken)).resolves.toBe(true)
     await expect(service.verifyEmail(registration.verificationToken)).resolves.toBe(false)
     expect(store.users.get(registration.userId)?.status).toBe('active')
+  })
+
+  it('rejects expired and unknown email verification tokens without consuming the valid token', async () => {
+    const store = new LifecycleStore()
+    const service = new UserAuthService(store, { now: () => new Date('2026-01-01T00:00:00Z') })
+    const registration = await service.register('writer@example.com', 'a sufficiently long password')
+    const token = store.verification.get(hashToken(registration.verificationToken))
+    if (token === undefined) throw new Error('verification token missing')
+    token.expiresAt = new Date('2025-12-31T23:59:59Z')
+
+    await expect(service.verifyEmail(registration.verificationToken)).resolves.toBe(false)
+    await expect(service.verifyEmail('unknown-token')).resolves.toBe(false)
+    expect(token.consumedAt).toBeNull()
+    expect(store.users.get(registration.userId)?.status).toBe('pending')
+  })
+
+  it('does not consume an email verification token when its user cannot be activated', async () => {
+    const store = new LifecycleStore()
+    const service = new UserAuthService(store, { now: () => new Date('2026-01-01T00:00:00Z') })
+    const registration = await service.register('writer@example.com', 'a sufficiently long password')
+    const tokenHash = hashToken(registration.verificationToken)
+    store.users.delete(registration.userId)
+
+    await expect(service.verifyEmail(registration.verificationToken)).rejects.toThrow('user missing')
+    expect(store.verification.get(tokenHash)?.consumedAt).toBeNull()
   })
 
   it('resets a password and revokes existing sessions without exposing token material', async () => {
