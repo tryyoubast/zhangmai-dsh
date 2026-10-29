@@ -148,6 +148,7 @@ export const characters = novelSchema.table('characters', {
   deletedAt: instant('deleted_at'),
 }, table => ({
   sourceIdempotencyIndex: uniqueIndex('characters_workspace_idempotency_idx').on(table.workspaceId, table.sourceIdempotencyKey),
+  contextSearchIndex: index('novel_characters_context_search_idx').using('gin', sql`to_tsvector('simple', left(${table.name} || E'\\n' || coalesce(${table.summary}, '') || E'\\n' || ${table.attributesJsonb}::text, 16384))`),
   workspaceIdKey: unique('characters_workspace_id_id_key').on(table.workspaceId, table.id),
   workspaceNovelIdKey: unique('characters_workspace_novel_id_id_key').on(table.workspaceId, table.novelId, table.id),
   workspaceNovelForeignKey: foreignKey({
@@ -212,6 +213,7 @@ export const skills = novelSchema.table('skills', {
   deletedAt: instant('deleted_at'),
 }, table => ({
   sourceIdempotencyIndex: uniqueIndex('skills_workspace_idempotency_idx').on(table.workspaceId, table.sourceIdempotencyKey),
+  contextSearchIndex: index('novel_skills_context_search_idx').using('gin', sql`to_tsvector('simple', left(${table.name} || E'\\n' || coalesce(${table.summary}, '') || E'\\n' || ${table.attributesJsonb}::text, 16384))`),
   workspaceIdKey: unique('skills_workspace_id_id_key').on(table.workspaceId, table.id),
   workspaceNovelIdKey: unique('skills_workspace_novel_id_id_key').on(table.workspaceId, table.novelId, table.id),
   workspaceNovelForeignKey: foreignKey({
@@ -276,6 +278,7 @@ export const locations = novelSchema.table('locations', {
   deletedAt: instant('deleted_at'),
 }, table => ({
   workspaceNovelIndex: index('novel_locations_workspace_novel_idx').on(table.workspaceId, table.novelId, table.status),
+  contextSearchIndex: index('novel_locations_context_search_idx').using('gin', sql`to_tsvector('simple', left(${table.name} || E'\\n' || coalesce(${table.summary}, '') || E'\\n' || ${table.attributesJsonb}::text, 16384))`),
   workspaceIdKey: unique('locations_workspace_id_id_key').on(table.workspaceId, table.id),
   workspaceNovelIdKey: unique('locations_workspace_novel_id_id_key').on(table.workspaceId, table.novelId, table.id),
   workspaceNovelForeignKey: foreignKey({
@@ -310,6 +313,7 @@ export const factions = novelSchema.table('factions', {
   deletedAt: instant('deleted_at'),
 }, table => ({
   workspaceNovelIndex: index('novel_factions_workspace_novel_idx').on(table.workspaceId, table.novelId, table.status),
+  contextSearchIndex: index('novel_factions_context_search_idx').using('gin', sql`to_tsvector('simple', left(${table.name} || E'\\n' || coalesce(${table.summary}, '') || E'\\n' || ${table.attributesJsonb}::text, 16384))`),
   sourceIdempotencyIndex: uniqueIndex('factions_workspace_idempotency_idx').on(table.workspaceId, table.sourceIdempotencyKey),
   workspaceIdKey: unique('factions_workspace_id_id_key').on(table.workspaceId, table.id),
   workspaceNovelIdKey: unique('factions_workspace_novel_id_id_key').on(table.workspaceId, table.novelId, table.id),
@@ -344,6 +348,7 @@ export const items = novelSchema.table('items', {
   deletedAt: instant('deleted_at'),
 }, table => ({
   workspaceNovelIndex: index('novel_items_workspace_novel_idx').on(table.workspaceId, table.novelId, table.status),
+  contextSearchIndex: index('novel_items_context_search_idx').using('gin', sql`to_tsvector('simple', left(${table.name} || E'\\n' || coalesce(${table.summary}, '') || E'\\n' || ${table.attributesJsonb}::text, 16384))`),
   sourceIdempotencyIndex: uniqueIndex('items_workspace_idempotency_idx').on(table.workspaceId, table.sourceIdempotencyKey),
   workspaceIdKey: unique('items_workspace_id_id_key').on(table.workspaceId, table.id),
   workspaceNovelIdKey: unique('items_workspace_novel_id_id_key').on(table.workspaceId, table.novelId, table.id),
@@ -378,6 +383,7 @@ export const storylines = novelSchema.table('storylines', {
   deletedAt: instant('deleted_at'),
 }, table => ({
   workspaceNovelIndex: index('novel_storylines_workspace_novel_idx').on(table.workspaceId, table.novelId, table.status),
+  contextSearchIndex: index('novel_storylines_context_search_idx').using('gin', sql`to_tsvector('simple', left(${table.name} || E'\\n' || coalesce(${table.summary}, '') || E'\\n' || ${table.attributesJsonb}::text, 16384))`),
   sourceIdempotencyIndex: uniqueIndex('storylines_workspace_idempotency_idx').on(table.workspaceId, table.sourceIdempotencyKey),
   workspaceIdKey: unique('storylines_workspace_id_id_key').on(table.workspaceId, table.id),
   workspaceNovelIdKey: unique('storylines_workspace_novel_id_id_key').on(table.workspaceId, table.novelId, table.id),
@@ -565,6 +571,7 @@ export const characterSkills = novelSchema.table('character_skills', {
   deletedAt: instant('deleted_at'),
 }, table => ({
   primaryKey: primaryKey({ columns: [table.workspaceId, table.novelId, table.characterId, table.skillId] }),
+  contextSearchIndex: index('novel_character_skills_context_search_idx').using('gin', sql`to_tsvector('simple', left(${table.relationType} || E'\\n' || ${table.attributesJsonb}::text, 16384))`),
   workspaceNovelIdKey: unique('character_skills_workspace_novel_id_id_key').on(table.workspaceId, table.novelId, table.id),
   sourceIdempotencyIndex: uniqueIndex('character_skills_workspace_idempotency_idx').on(table.workspaceId, table.sourceIdempotencyKey),
   workspaceCharacterForeignKey: foreignKey({
@@ -646,6 +653,7 @@ export const entityRelations = novelSchema.table('entity_relations', {
 }, table => ({
   sourceIndex: index('entity_relations_source_idx').on(table.workspaceId, table.sourceEntityType, table.sourceEntityId),
   targetIndex: index('entity_relations_target_idx').on(table.workspaceId, table.targetEntityType, table.targetEntityId),
+  contextSearchIndex: index('novel_entity_relations_context_search_idx').using('gin', sql`to_tsvector('simple', left(${table.sourceEntityType} || ':' || ${table.sourceEntityId}::text || ' ' || ${table.relationType} || ' ' || ${table.targetEntityType} || ':' || ${table.targetEntityId}::text || E'\\n' || ${table.attributesJsonb}::text, 16384))`),
   sourceIdempotencyIndex: uniqueIndex('entity_relations_workspace_idempotency_idx').on(table.workspaceId, table.sourceIdempotencyKey),
   workspaceIdKey: unique('entity_relations_workspace_id_id_key').on(table.workspaceId, table.id),
   workspaceNovelIdKey: unique('entity_relations_workspace_novel_id_id_key').on(table.workspaceId, table.novelId, table.id),
@@ -690,6 +698,7 @@ export const outlines = novelSchema.table('outlines', {
   }),
   sourceIdempotencyIndex: uniqueIndex('outlines_workspace_idempotency_idx').on(table.workspaceId, table.sourceIdempotencyKey)
     .where(sql`${table.sourceIdempotencyKey} IS NOT NULL`),
+  contextSearchIndex: index('novel_outlines_context_search_idx').using('gin', sql`to_tsvector('simple', left(${table.title} || E'\\n' || ${table.contentJsonb}::text, 16384))`),
   statusCheck: check('outlines_status_check', sql`${table.status} IN ('draft', 'published', 'archived', 'deleted')`),
   versionCheck: check('outlines_version_check', sql`${table.currentVersionNo} > 0`),
 }))
@@ -725,6 +734,7 @@ export const chapters = novelSchema.table('chapters', {
   }),
   sourceIdempotencyIndex: uniqueIndex('chapters_workspace_idempotency_idx').on(table.workspaceId, table.sourceIdempotencyKey)
     .where(sql`${table.sourceIdempotencyKey} IS NOT NULL`),
+  contextSearchIndex: index('novel_chapters_context_search_idx').using('gin', sql`to_tsvector('simple', left(${table.title} || E'\\n' || coalesce(${table.summary}, ''), 16384))`),
   workspaceNovelStatusIndex: index('chapters_workspace_novel_status_idx').on(table.workspaceId, table.novelId, table.status, table.chapterNo),
   statusCheck: check('chapters_status_check', sql`${table.status} IN ('draft', 'published', 'archived', 'deleted')`),
   chapterNumberCheck: check('chapters_number_check', sql`${table.chapterNo} > 0`),
@@ -765,6 +775,7 @@ export const chapterVersions = novelSchema.table('chapter_versions', {
   }),
   sourceIdempotencyIndex: uniqueIndex('chapter_versions_workspace_idempotency_idx').on(table.workspaceId, table.sourceIdempotencyKey)
     .where(sql`${table.sourceIdempotencyKey} IS NOT NULL`),
+  contextSearchIndex: index('novel_chapter_versions_context_search_idx').using('gin', sql`to_tsvector('simple', left(coalesce(${table.summary}, '') || E'\\n' || coalesce(${table.contentText}, ${table.contentObjectKey}, ''), 16384))`),
   workspaceChapterIndex: index('chapter_versions_workspace_chapter_idx').on(table.workspaceId, table.novelId, table.chapterId, table.versionNo.desc()),
   statusCheck: check('chapter_versions_status_check', sql`${table.status} IN ('draft', 'published', 'archived', 'deleted')`),
   versionCheck: check('chapter_versions_number_check', sql`${table.versionNo} > 0`),
@@ -814,6 +825,7 @@ export const chapterSummaries = novelSchema.table('chapter_summaries', {
   uniqueKind: unique('chapter_summaries_unique_kind').on(table.workspaceId, table.chapterVersionId, table.summaryKind),
   sourceIdempotencyIndex: uniqueIndex('chapter_summaries_workspace_idempotency_idx').on(table.workspaceId, table.sourceIdempotencyKey)
     .where(sql`${table.sourceIdempotencyKey} IS NOT NULL`),
+  contextSearchIndex: index('novel_chapter_summaries_context_search_idx').using('gin', sql`to_tsvector('simple', left(${table.contentText}, 16384))`),
   chapterIndex: index('chapter_summaries_workspace_chapter_idx').on(table.workspaceId, table.novelId, table.chapterId, table.createdAt.desc()),
 }))
 
@@ -859,6 +871,7 @@ export const storyFacts = novelSchema.table('story_facts', {
   }),
   sourceIdempotencyIndex: uniqueIndex('story_facts_workspace_idempotency_idx').on(table.workspaceId, table.sourceIdempotencyKey)
     .where(sql`${table.sourceIdempotencyKey} IS NOT NULL`),
+  contextSearchIndex: index('novel_story_facts_context_search_idx').using('gin', sql`to_tsvector('simple', left(${table.factKey} || E'\\n' || ${table.statement} || E'\\n' || ${table.attributesJsonb}::text, 16384))`),
   factKeyIndex: uniqueIndex('story_facts_workspace_key_idx').on(table.workspaceId, table.novelId, table.factKey)
     .where(sql`${table.deletedAt} IS NULL`),
   statusCheck: check('story_facts_status_check', sql`${table.status} IN ('draft', 'published', 'archived', 'deleted')`),
@@ -910,6 +923,7 @@ export const timelineEvents = novelSchema.table('timeline_events', {
   }),
   sourceIdempotencyIndex: uniqueIndex('timeline_events_workspace_idempotency_idx').on(table.workspaceId, table.sourceIdempotencyKey)
     .where(sql`${table.sourceIdempotencyKey} IS NOT NULL`),
+  contextSearchIndex: index('novel_timeline_events_context_search_idx').using('gin', sql`to_tsvector('simple', left(${table.title} || E'\\n' || coalesce(${table.description}, '') || E'\\n' || ${table.attributesJsonb}::text, 16384))`),
   eventKeyIndex: uniqueIndex('timeline_events_workspace_key_idx').on(table.workspaceId, table.novelId, table.eventKey)
     .where(sql`${table.deletedAt} IS NULL`),
   sequenceIndex: index('timeline_events_workspace_novel_sequence_idx').on(table.workspaceId, table.novelId, table.sequenceNo, table.updatedAt.desc()),

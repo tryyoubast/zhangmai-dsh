@@ -23,7 +23,7 @@ kind: "package-reference"
 
 生成请求的 `limit: 0` 明确表示不检索也不保存上下文；如果后续需要根据已保存上下文继续生成，应使用大于零的限制值。
 
-`PostgresNovelContextRepository` 是生产检索适配器。它在 `withRequestContext` 事务中读取大纲、章节、摘要、事实、时间线和小说实体，限制片段大小，并在写入新快照前校验哈希。重试和续写按原顺序重放数据库快照，不会再次读取来源实体。宿主仍需注入真实 LLM 适配器和持久化结果仓库；生产结果仓库必须实现 `withIdempotencyLock` 或等价的数据库级幂等声明/锁。
+`PostgresNovelContextRepository` 是生产检索适配器。它在 `withRequestContext` 事务中读取大纲、章节、摘要、事实、时间线和小说实体，先使用每个来源的 GIN 表达式索引进行 PostgreSQL 全文匹配，再计算相关度排序，限制片段大小，并在写入新快照前校验哈希。重试和续写按原顺序重放数据库快照，不会再次读取来源实体。宿主仍需注入真实 LLM 适配器和持久化结果仓库；生产结果仓库必须实现 `withIdempotencyLock` 或等价的数据库级幂等声明/锁。
 
 ## 安全约定
 

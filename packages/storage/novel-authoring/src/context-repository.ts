@@ -61,6 +61,7 @@ export class PostgresNovelContextRepository implements PersistedContextCandidate
   async findCandidates(query: ContextCandidateQuery): Promise<readonly ContextCandidate[]> {
     this.assertScope(query.workspaceId, query.novelId)
     return withRequestContext(this.database, this.context(), async (db) => {
+      const textQuery = sql`plainto_tsquery('simple', ${query.instruction})`
       const result = await db.execute(sql`
         WITH sources AS (
           SELECT 'outline'::text AS source_type, id AS source_id, status, updated_at,
@@ -68,82 +69,96 @@ export class PostgresNovelContextRepository implements PersistedContextCandidate
             FROM novel.outlines
             WHERE workspace_id = ${query.workspaceId}::uuid AND novel_id = ${query.novelId}::uuid
               AND deleted_at IS NULL
+              AND to_tsvector('simple', left(title || E'\\n' || content_jsonb::text, 16384)) @@ ${textQuery}
           UNION ALL
           SELECT 'chapter'::text, id, status, updated_at,
             left(title || E'\\n' || coalesce(summary, ''), 16384)
             FROM novel.chapters
             WHERE workspace_id = ${query.workspaceId}::uuid AND novel_id = ${query.novelId}::uuid
               AND deleted_at IS NULL
+              AND to_tsvector('simple', left(title || E'\\n' || coalesce(summary, ''), 16384)) @@ ${textQuery}
           UNION ALL
           SELECT 'chapter_summary'::text, id, status, updated_at,
             left(content_text, 16384)
             FROM novel.chapter_summaries
             WHERE workspace_id = ${query.workspaceId}::uuid AND novel_id = ${query.novelId}::uuid
               AND deleted_at IS NULL
+              AND to_tsvector('simple', left(content_text, 16384)) @@ ${textQuery}
           UNION ALL
           SELECT 'story_fact'::text, id, status, updated_at,
             left(fact_key || E'\\n' || statement || E'\\n' || attributes_jsonb::text, 16384)
             FROM novel.story_facts
             WHERE workspace_id = ${query.workspaceId}::uuid AND novel_id = ${query.novelId}::uuid
               AND deleted_at IS NULL
+              AND to_tsvector('simple', left(fact_key || E'\\n' || statement || E'\\n' || attributes_jsonb::text, 16384)) @@ ${textQuery}
           UNION ALL
           SELECT 'timeline_event'::text, id, status, updated_at,
             left(title || E'\\n' || coalesce(description, '') || E'\\n' || attributes_jsonb::text, 16384)
             FROM novel.timeline_events
             WHERE workspace_id = ${query.workspaceId}::uuid AND novel_id = ${query.novelId}::uuid
               AND deleted_at IS NULL
+              AND to_tsvector('simple', left(title || E'\\n' || coalesce(description, '') || E'\\n' || attributes_jsonb::text, 16384)) @@ ${textQuery}
           UNION ALL
           SELECT 'character'::text, id, status, updated_at,
             left(name || E'\\n' || coalesce(summary, '') || E'\\n' || attributes_jsonb::text, 16384)
             FROM novel.characters
             WHERE workspace_id = ${query.workspaceId}::uuid AND novel_id = ${query.novelId}::uuid
               AND deleted_at IS NULL
+              AND to_tsvector('simple', left(name || E'\\n' || coalesce(summary, '') || E'\\n' || attributes_jsonb::text, 16384)) @@ ${textQuery}
           UNION ALL
           SELECT 'skill'::text, id, status, updated_at,
             left(name || E'\\n' || coalesce(summary, '') || E'\\n' || attributes_jsonb::text, 16384)
             FROM novel.skills
             WHERE workspace_id = ${query.workspaceId}::uuid AND novel_id = ${query.novelId}::uuid
               AND deleted_at IS NULL
+              AND to_tsvector('simple', left(name || E'\\n' || coalesce(summary, '') || E'\\n' || attributes_jsonb::text, 16384)) @@ ${textQuery}
           UNION ALL
           SELECT 'location'::text, id, status, updated_at,
             left(name || E'\\n' || coalesce(summary, '') || E'\\n' || attributes_jsonb::text, 16384)
             FROM novel.locations
             WHERE workspace_id = ${query.workspaceId}::uuid AND novel_id = ${query.novelId}::uuid
               AND deleted_at IS NULL
+              AND to_tsvector('simple', left(name || E'\\n' || coalesce(summary, '') || E'\\n' || attributes_jsonb::text, 16384)) @@ ${textQuery}
           UNION ALL
           SELECT 'faction'::text, id, status, updated_at,
             left(name || E'\\n' || coalesce(summary, '') || E'\\n' || attributes_jsonb::text, 16384)
             FROM novel.factions
             WHERE workspace_id = ${query.workspaceId}::uuid AND novel_id = ${query.novelId}::uuid
               AND deleted_at IS NULL
+              AND to_tsvector('simple', left(name || E'\\n' || coalesce(summary, '') || E'\\n' || attributes_jsonb::text, 16384)) @@ ${textQuery}
           UNION ALL
           SELECT 'item'::text, id, status, updated_at,
             left(name || E'\\n' || coalesce(summary, '') || E'\\n' || attributes_jsonb::text, 16384)
             FROM novel.items
             WHERE workspace_id = ${query.workspaceId}::uuid AND novel_id = ${query.novelId}::uuid
               AND deleted_at IS NULL
+              AND to_tsvector('simple', left(name || E'\\n' || coalesce(summary, '') || E'\\n' || attributes_jsonb::text, 16384)) @@ ${textQuery}
           UNION ALL
           SELECT 'storyline'::text, id, status, updated_at,
             left(name || E'\\n' || coalesce(summary, '') || E'\\n' || attributes_jsonb::text, 16384)
             FROM novel.storylines
             WHERE workspace_id = ${query.workspaceId}::uuid AND novel_id = ${query.novelId}::uuid
               AND deleted_at IS NULL
+              AND to_tsvector('simple', left(name || E'\\n' || coalesce(summary, '') || E'\\n' || attributes_jsonb::text, 16384)) @@ ${textQuery}
           UNION ALL
           SELECT 'chapter_version'::text, id, status, created_at,
             left(coalesce(summary, '') || E'\\n' || coalesce(content_text, content_object_key, ''), 16384)
             FROM novel.chapter_versions
             WHERE workspace_id = ${query.workspaceId}::uuid AND novel_id = ${query.novelId}::uuid
+              AND to_tsvector('simple', left(coalesce(summary, '') || E'\\n' || coalesce(content_text, content_object_key, ''), 16384)) @@ ${textQuery}
           UNION ALL
           SELECT 'entity_relation'::text, id, status, updated_at,
             left(source_entity_type || ':' || source_entity_id::text || ' ' || relation_type || ' ' || target_entity_type || ':' || target_entity_id::text || E'\\n' || attributes_jsonb::text, 16384)
             FROM novel.entity_relations
             WHERE workspace_id = ${query.workspaceId}::uuid AND novel_id = ${query.novelId}::uuid
               AND deleted_at IS NULL
+              AND to_tsvector('simple', left(source_entity_type || ':' || source_entity_id::text || ' ' || relation_type || ' ' || target_entity_type || ':' || target_entity_id::text || E'\\n' || attributes_jsonb::text, 16384)) @@ ${textQuery}
           UNION ALL
           SELECT 'character_skill'::text, id, status, created_at,
             left(relation_type || E'\\n' || attributes_jsonb::text, 16384)
             FROM novel.character_skills
             WHERE workspace_id = ${query.workspaceId}::uuid AND novel_id = ${query.novelId}::uuid
+              AND to_tsvector('simple', left(relation_type || E'\\n' || attributes_jsonb::text, 16384)) @@ ${textQuery}
         )
         SELECT source_type, source_id::text, status, updated_at,
           ts_rank(to_tsvector('simple', coalesce(excerpt, '')), plainto_tsquery('simple', ${query.instruction})) AS relevance_score,
@@ -162,13 +177,119 @@ export class PostgresNovelContextRepository implements PersistedContextCandidate
     readonly novelId: string
     readonly items: readonly PersistedGenerationContextItem[]
   }): Promise<readonly ContextCandidate[]> {
-    const candidates = await this.findCandidates({
-      workspaceId: input.workspaceId,
-      novelId: input.novelId,
-      instruction: '',
+    this.assertScope(input.workspaceId, input.novelId)
+    if (input.items.length === 0) return []
+    return withRequestContext(this.database, this.context(), async (db) => {
+      const requestedValues = sql.join(input.items.map(item => sql`(${item.sourceType}, ${item.sourceId}::uuid)`), sql`, `)
+      const result = await db.execute(sql`
+        WITH requested(source_type, source_id) AS (
+          SELECT DISTINCT source_type, source_id
+          FROM (VALUES ${requestedValues}) AS requested_values(source_type, source_id)
+        ), sources AS (
+          SELECT 'outline'::text AS source_type, id AS source_id, status, updated_at,
+            left(title || E'\\n' || content_jsonb::text, 16384) AS excerpt
+            FROM novel.outlines
+            JOIN requested ON requested.source_type = 'outline' AND requested.source_id = id
+            WHERE workspace_id = ${input.workspaceId}::uuid AND novel_id = ${input.novelId}::uuid
+              AND deleted_at IS NULL
+          UNION ALL
+          SELECT 'chapter'::text, id, status, updated_at,
+            left(title || E'\\n' || coalesce(summary, ''), 16384)
+            FROM novel.chapters
+            JOIN requested ON requested.source_type = 'chapter' AND requested.source_id = id
+            WHERE workspace_id = ${input.workspaceId}::uuid AND novel_id = ${input.novelId}::uuid
+              AND deleted_at IS NULL
+          UNION ALL
+          SELECT 'chapter_summary'::text, id, status, updated_at,
+            left(content_text, 16384)
+            FROM novel.chapter_summaries
+            JOIN requested ON requested.source_type = 'chapter_summary' AND requested.source_id = id
+            WHERE workspace_id = ${input.workspaceId}::uuid AND novel_id = ${input.novelId}::uuid
+              AND deleted_at IS NULL
+          UNION ALL
+          SELECT 'story_fact'::text, id, status, updated_at,
+            left(fact_key || E'\\n' || statement || E'\\n' || attributes_jsonb::text, 16384)
+            FROM novel.story_facts
+            JOIN requested ON requested.source_type = 'story_fact' AND requested.source_id = id
+            WHERE workspace_id = ${input.workspaceId}::uuid AND novel_id = ${input.novelId}::uuid
+              AND deleted_at IS NULL
+          UNION ALL
+          SELECT 'timeline_event'::text, id, status, updated_at,
+            left(title || E'\\n' || coalesce(description, '') || E'\\n' || attributes_jsonb::text, 16384)
+            FROM novel.timeline_events
+            JOIN requested ON requested.source_type = 'timeline_event' AND requested.source_id = id
+            WHERE workspace_id = ${input.workspaceId}::uuid AND novel_id = ${input.novelId}::uuid
+              AND deleted_at IS NULL
+          UNION ALL
+          SELECT 'character'::text, id, status, updated_at,
+            left(name || E'\\n' || coalesce(summary, '') || E'\\n' || attributes_jsonb::text, 16384)
+            FROM novel.characters
+            JOIN requested ON requested.source_type = 'character' AND requested.source_id = id
+            WHERE workspace_id = ${input.workspaceId}::uuid AND novel_id = ${input.novelId}::uuid
+              AND deleted_at IS NULL
+          UNION ALL
+          SELECT 'skill'::text, id, status, updated_at,
+            left(name || E'\\n' || coalesce(summary, '') || E'\\n' || attributes_jsonb::text, 16384)
+            FROM novel.skills
+            JOIN requested ON requested.source_type = 'skill' AND requested.source_id = id
+            WHERE workspace_id = ${input.workspaceId}::uuid AND novel_id = ${input.novelId}::uuid
+              AND deleted_at IS NULL
+          UNION ALL
+          SELECT 'location'::text, id, status, updated_at,
+            left(name || E'\\n' || coalesce(summary, '') || E'\\n' || attributes_jsonb::text, 16384)
+            FROM novel.locations
+            JOIN requested ON requested.source_type = 'location' AND requested.source_id = id
+            WHERE workspace_id = ${input.workspaceId}::uuid AND novel_id = ${input.novelId}::uuid
+              AND deleted_at IS NULL
+          UNION ALL
+          SELECT 'faction'::text, id, status, updated_at,
+            left(name || E'\\n' || coalesce(summary, '') || E'\\n' || attributes_jsonb::text, 16384)
+            FROM novel.factions
+            JOIN requested ON requested.source_type = 'faction' AND requested.source_id = id
+            WHERE workspace_id = ${input.workspaceId}::uuid AND novel_id = ${input.novelId}::uuid
+              AND deleted_at IS NULL
+          UNION ALL
+          SELECT 'item'::text, id, status, updated_at,
+            left(name || E'\\n' || coalesce(summary, '') || E'\\n' || attributes_jsonb::text, 16384)
+            FROM novel.items
+            JOIN requested ON requested.source_type = 'item' AND requested.source_id = id
+            WHERE workspace_id = ${input.workspaceId}::uuid AND novel_id = ${input.novelId}::uuid
+              AND deleted_at IS NULL
+          UNION ALL
+          SELECT 'storyline'::text, id, status, updated_at,
+            left(name || E'\\n' || coalesce(summary, '') || E'\\n' || attributes_jsonb::text, 16384)
+            FROM novel.storylines
+            JOIN requested ON requested.source_type = 'storyline' AND requested.source_id = id
+            WHERE workspace_id = ${input.workspaceId}::uuid AND novel_id = ${input.novelId}::uuid
+              AND deleted_at IS NULL
+          UNION ALL
+          SELECT 'chapter_version'::text, id, status, created_at,
+            left(coalesce(summary, '') || E'\\n' || coalesce(content_text, content_object_key, ''), 16384)
+            FROM novel.chapter_versions
+            JOIN requested ON requested.source_type = 'chapter_version' AND requested.source_id = id
+            WHERE workspace_id = ${input.workspaceId}::uuid AND novel_id = ${input.novelId}::uuid
+          UNION ALL
+          SELECT 'entity_relation'::text, id, status, updated_at,
+            left(source_entity_type || ':' || source_entity_id::text || ' ' || relation_type || ' ' || target_entity_type || ':' || target_entity_id::text || E'\\n' || attributes_jsonb::text, 16384)
+            FROM novel.entity_relations
+            JOIN requested ON requested.source_type = 'entity_relation' AND requested.source_id = id
+            WHERE workspace_id = ${input.workspaceId}::uuid AND novel_id = ${input.novelId}::uuid
+              AND deleted_at IS NULL
+          UNION ALL
+          SELECT 'character_skill'::text, id, status, created_at,
+            left(relation_type || E'\\n' || attributes_jsonb::text, 16384)
+            FROM novel.character_skills
+            JOIN requested ON requested.source_type = 'character_skill' AND requested.source_id = id
+            WHERE workspace_id = ${input.workspaceId}::uuid AND novel_id = ${input.novelId}::uuid
+        )
+        SELECT sources.source_type, sources.source_id::text, sources.status, sources.updated_at,
+          0::real AS relevance_score, sources.excerpt
+        FROM sources
+        JOIN requested ON requested.source_type = sources.source_type AND requested.source_id = sources.source_id
+        WHERE sources.status NOT IN ('archived', 'deleted')
+      `)
+      return (result.rows as unknown as ContextRow[]).map(row => candidate(row, input.workspaceId, input.novelId))
     })
-    const requested = new Set(input.items.map(item => `${item.sourceType}\u0000${item.sourceId}`))
-    return candidates.filter(item => requested.has(`${item.sourceType}\u0000${item.sourceId}`))
   }
 
   private assertScope(workspaceId: string, novelId: string): void {

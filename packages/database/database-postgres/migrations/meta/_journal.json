@@ -92,6 +92,13 @@
       "when": 1791590400000,
       "tag": "0013_legacy_context_rerun_marker",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1793232000000,
+      "tag": "0014_novel_context_fulltext_indexes",
+      "breakpoints": true
     }
   ]
 }

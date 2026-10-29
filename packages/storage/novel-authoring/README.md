@@ -23,7 +23,7 @@ This host-only package provides workspace and novel lifecycle services, fixed-en
 
 A generation request with `limit: 0` deliberately runs without context retrieval or context rows; callers should use a positive limit when continuation needs a persisted context selection.
 
-`PostgresNovelContextRepository` is the production retrieval adapter. It reads outlines, chapters, summaries, facts, timeline events, and fixed novel entities inside `withRequestContext`, keeps excerpts bounded, and verifies the stored hash before a new snapshot is written. Retries and continuations replay the database snapshot in rank order without reading the source entities again. The host still supplies the actual LLM adapter and a durable result repository; production result repositories must implement `withIdempotencyLock` or an equivalent database-backed claim.
+`PostgresNovelContextRepository` is the production retrieval adapter. It reads outlines, chapters, summaries, facts, timeline events, and fixed novel entities inside `withRequestContext`, applies each source's GIN expression index before ranking with PostgreSQL full-text search, keeps excerpts bounded, and verifies the stored hash before a new snapshot is written. Retries and continuations replay the database snapshot in rank order without reading the source entities again. The host still supplies the actual LLM adapter and a durable result repository; production result repositories must implement `withIdempotencyLock` or an equivalent database-backed claim.
 
 ## Security contract
 

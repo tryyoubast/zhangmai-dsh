@@ -416,7 +416,7 @@ describe('PostgreSQL authoring hardening migration', () => {
   it('adds the rerun marker for legacy incomplete contexts', () => {
     const migration = readFileSync(resolve(import.meta.dirname, '../migrations/0013_legacy_context_rerun_marker.sql'), 'utf8')
     const journal = JSON.parse(readFileSync(resolve(import.meta.dirname, '../migrations/meta/_journal.json'), 'utf8')) as { entries: { tag: string }[] }
-    expect(journal.entries.at(-1)?.tag).toBe('0013_legacy_context_rerun_marker')
+    expect(journal.entries.some(entry => entry.tag === '0013_legacy_context_rerun_marker')).toBe(true)
     expect(migration).toContain('ADD COLUMN requires_rerun BOOLEAN NOT NULL DEFAULT FALSE')
     expect(migration).toContain("run.status IN ('queued', 'running', 'failed', 'cancelled')")
     expect(migration).toContain('(item.excerpt IS NULL OR item.source_status IS NULL)')

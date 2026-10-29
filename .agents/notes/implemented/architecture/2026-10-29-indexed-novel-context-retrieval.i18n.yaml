@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-29-indexed-novel-context-retrieval.md
+2026-10-29-indexed-novel-context-retrieval.md: ec6afe8d334e15c39d3e500d910e85d58834ddb5
+2026-10-29-indexed-novel-context-retrieval.zh.md: c0b07a2c63adcf5401cc3119be1dba93daa8a1da

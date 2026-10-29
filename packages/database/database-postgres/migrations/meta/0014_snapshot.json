@@ -1,0 +1,106 @@
+{
+  "id": "0014_novel_context_fulltext_indexes",
+  "prevId": "0013_legacy_context_rerun_marker",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "novel.outlines": {
+      "name": "outlines",
+      "schema": "novel",
+      "indexes": {
+        "novel_outlines_context_search_idx": { "name": "novel_outlines_context_search_idx", "columns": [{ "expression": "to_tsvector('simple', left(title || E'\\n' || content_jsonb::text, 16384))", "isExpression": true, "asc": true, "nulls": "last" }], "isUnique": false, "concurrently": false, "method": "gin", "with": {} }
+      }
+    },
+    "novel.chapters": {
+      "name": "chapters",
+      "schema": "novel",
+      "indexes": {
+        "novel_chapters_context_search_idx": { "name": "novel_chapters_context_search_idx", "columns": [{ "expression": "to_tsvector('simple', left(title || E'\\n' || coalesce(summary, ''), 16384))", "isExpression": true, "asc": true, "nulls": "last" }], "isUnique": false, "concurrently": false, "method": "gin", "with": {} }
+      }
+    },
+    "novel.chapter_summaries": {
+      "name": "chapter_summaries",
+      "schema": "novel",
+      "indexes": {
+        "novel_chapter_summaries_context_search_idx": { "name": "novel_chapter_summaries_context_search_idx", "columns": [{ "expression": "to_tsvector('simple', left(content_text, 16384))", "isExpression": true, "asc": true, "nulls": "last" }], "isUnique": false, "concurrently": false, "method": "gin", "with": {} }
+      }
+    },
+    "novel.story_facts": {
+      "name": "story_facts",
+      "schema": "novel",
+      "indexes": {
+        "novel_story_facts_context_search_idx": { "name": "novel_story_facts_context_search_idx", "columns": [{ "expression": "to_tsvector('simple', left(fact_key || E'\\n' || statement || E'\\n' || attributes_jsonb::text, 16384))", "isExpression": true, "asc": true, "nulls": "last" }], "isUnique": false, "concurrently": false, "method": "gin", "with": {} }
+      }
+    },
+    "novel.timeline_events": {
+      "name": "timeline_events",
+      "schema": "novel",
+      "indexes": {
+        "novel_timeline_events_context_search_idx": { "name": "novel_timeline_events_context_search_idx", "columns": [{ "expression": "to_tsvector('simple', left(title || E'\\n' || coalesce(description, '') || E'\\n' || attributes_jsonb::text, 16384))", "isExpression": true, "asc": true, "nulls": "last" }], "isUnique": false, "concurrently": false, "method": "gin", "with": {} }
+      }
+    },
+    "novel.characters": {
+      "name": "characters",
+      "schema": "novel",
+      "indexes": {
+        "novel_characters_context_search_idx": { "name": "novel_characters_context_search_idx", "columns": [{ "expression": "to_tsvector('simple', left(name || E'\\n' || coalesce(summary, '') || E'\\n' || attributes_jsonb::text, 16384))", "isExpression": true, "asc": true, "nulls": "last" }], "isUnique": false, "concurrently": false, "method": "gin", "with": {} }
+      }
+    },
+    "novel.skills": {
+      "name": "skills",
+      "schema": "novel",
+      "indexes": {
+        "novel_skills_context_search_idx": { "name": "novel_skills_context_search_idx", "columns": [{ "expression": "to_tsvector('simple', left(name || E'\\n' || coalesce(summary, '') || E'\\n' || attributes_jsonb::text, 16384))", "isExpression": true, "asc": true, "nulls": "last" }], "isUnique": false, "concurrently": false, "method": "gin", "with": {} }
+      }
+    },
+    "novel.locations": {
+      "name": "locations",
+      "schema": "novel",
+      "indexes": {
+        "novel_locations_context_search_idx": { "name": "novel_locations_context_search_idx", "columns": [{ "expression": "to_tsvector('simple', left(name || E'\\n' || coalesce(summary, '') || E'\\n' || attributes_jsonb::text, 16384))", "isExpression": true, "asc": true, "nulls": "last" }], "isUnique": false, "concurrently": false, "method": "gin", "with": {} }
+      }
+    },
+    "novel.factions": {
+      "name": "factions",
+      "schema": "novel",
+      "indexes": {
+        "novel_factions_context_search_idx": { "name": "novel_factions_context_search_idx", "columns": [{ "expression": "to_tsvector('simple', left(name || E'\\n' || coalesce(summary, '') || E'\\n' || attributes_jsonb::text, 16384))", "isExpression": true, "asc": true, "nulls": "last" }], "isUnique": false, "concurrently": false, "method": "gin", "with": {} }
+      }
+    },
+    "novel.items": {
+      "name": "items",
+      "schema": "novel",
+      "indexes": {
+        "novel_items_context_search_idx": { "name": "novel_items_context_search_idx", "columns": [{ "expression": "to_tsvector('simple', left(name || E'\\n' || coalesce(summary, '') || E'\\n' || attributes_jsonb::text, 16384))", "isExpression": true, "asc": true, "nulls": "last" }], "isUnique": false, "concurrently": false, "method": "gin", "with": {} }
+      }
+    },
+    "novel.storylines": {
+      "name": "storylines",
+      "schema": "novel",
+      "indexes": {
+        "novel_storylines_context_search_idx": { "name": "novel_storylines_context_search_idx", "columns": [{ "expression": "to_tsvector('simple', left(name || E'\\n' || coalesce(summary, '') || E'\\n' || attributes_jsonb::text, 16384))", "isExpression": true, "asc": true, "nulls": "last" }], "isUnique": false, "concurrently": false, "method": "gin", "with": {} }
+      }
+    },
+    "novel.chapter_versions": {
+      "name": "chapter_versions",
+      "schema": "novel",
+      "indexes": {
+        "novel_chapter_versions_context_search_idx": { "name": "novel_chapter_versions_context_search_idx", "columns": [{ "expression": "to_tsvector('simple', left(coalesce(summary, '') || E'\\n' || coalesce(content_text, content_object_key, ''), 16384))", "isExpression": true, "asc": true, "nulls": "last" }], "isUnique": false, "concurrently": false, "method": "gin", "with": {} }
+      }
+    },
+    "novel.entity_relations": {
+      "name": "entity_relations",
+      "schema": "novel",
+      "indexes": {
+        "novel_entity_relations_context_search_idx": { "name": "novel_entity_relations_context_search_idx", "columns": [{ "expression": "to_tsvector('simple', left(source_entity_type || ':' || source_entity_id::text || ' ' || relation_type || ' ' || target_entity_type || ':' || target_entity_id::text || E'\\n' || attributes_jsonb::text, 16384))", "isExpression": true, "asc": true, "nulls": "last" }], "isUnique": false, "concurrently": false, "method": "gin", "with": {} }
+      }
+    },
+    "novel.character_skills": {
+      "name": "character_skills",
+      "schema": "novel",
+      "indexes": {
+        "novel_character_skills_context_search_idx": { "name": "novel_character_skills_context_search_idx", "columns": [{ "expression": "to_tsvector('simple', left(relation_type || E'\\n' || attributes_jsonb::text, 16384))", "isExpression": true, "asc": true, "nulls": "last" }], "isUnique": false, "concurrently": false, "method": "gin", "with": {} }
+      }
+    }
+  }
+}
