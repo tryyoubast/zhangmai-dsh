@@ -50,20 +50,28 @@ function comparable(value: unknown): unknown {
 }
 
 /** Resolve a conflict only when the durable row still represents this request. */
-function resolveIdempotentConflict(
-  entity: string,
-  row: Record<string, unknown> | undefined,
-  expected: Record<string, unknown>,
-): string {
-  if (row === undefined || typeof row.id !== 'string') {
+function assertIdempotentFields(entity: string, row: object | undefined, expected: Record<string, unknown>): void {
+  if (row === undefined) {
     throw new Error(`${entity} idempotency conflict: conflicting row was not found`)
   }
+  const values = row as Record<string, unknown>
   for (const [field, expectedValue] of Object.entries(expected)) {
-    if (!isDeepStrictEqual(comparable(row[field]), comparable(expectedValue))) {
+    if (!isDeepStrictEqual(comparable(values[field]), comparable(expectedValue))) {
       throw new Error(`${entity} idempotency conflict: ${field} mismatch`)
     }
   }
-  return row.id
+}
+
+function resolveIdempotentConflict(
+  entity: string,
+  row: object | undefined,
+  expected: Record<string, unknown>,
+): string {
+  assertIdempotentFields(entity, row, expected)
+  if (typeof (row as Record<string, unknown> | undefined)?.id !== 'string') {
+    throw new Error(`${entity} idempotency conflict: conflicting row has no ID`)
+  }
+  return (row as { id: string }).id
 }
 
 /** Fixed entity types that the model may author as records. */
@@ -1150,6 +1158,26 @@ export interface GenerationContextItemInput {
   readonly selectionReason: string
 }
 
+function generationContextItemKey(item: Pick<GenerationContextItemInput, 'generationRunId' | 'sourceType' | 'sourceId'>): string {
+  return JSON.stringify([item.generationRunId, item.sourceType, item.sourceId])
+}
+
+function generationContextItemExpected(item: GenerationContextItemInput): Record<string, unknown> {
+  return {
+    workspaceId: item.workspaceId,
+    novelId: item.novelId,
+    generationRunId: item.generationRunId,
+    sourceType: item.sourceType,
+    sourceId: item.sourceId,
+    rank: item.rank,
+    excerptHash: item.excerptHash,
+    excerpt: item.excerpt,
+    sourceStatus: item.sourceStatus,
+    tokenCount: item.tokenCount,
+    selectionReason: item.selectionReason,
+  }
+}
+
 /** Candidate context item returned by a domain query before model selection. */
 export interface ContextCandidate {
   readonly sourceType: string
@@ -1290,32 +1318,40 @@ export class LongformAuthoringService {
   /** Append context selections for a run; duplicate source selections are idempotently ignored. */
   async recordContextItems(itemsInput: readonly GenerationContextItemInput[]): Promise<void> {
     assertGenerationWorker(this.principal)
-    for (const item of itemsInput) this.assertWorkspace(item.workspaceId)
+    if (itemsInput.length === 0) return
+    const uniqueItems = new Map<string, GenerationContextItemInput>()
+    for (const item of itemsInput) {
+      this.assertWorkspace(item.workspaceId)
+      if (item.excerpt.trim() === '') throw new Error('context excerpts are required for durable replay')
+      const key = generationContextItemKey(item)
+      const existing = uniqueItems.get(key)
+      if (existing === undefined) {
+        uniqueItems.set(key, item)
+      } else {
+        assertIdempotentFields('generation context item', existing, generationContextItemExpected(item))
+      }
+    }
+    const items = [...uniqueItems.values()]
     await this.withContext(async (db) => {
-      for (const item of itemsInput) {
-        if (item.excerpt.trim() === '') throw new Error('context excerpts are required for durable replay')
-        const [inserted] = await db.insert(generationContextItems).values(item).onConflictDoNothing({
-          target: [generationContextItems.generationRunId, generationContextItems.sourceType, generationContextItems.sourceId],
-        }).returning({ id: generationContextItems.id })
-        if (inserted !== undefined) continue
-        const [existing] = await db.select().from(generationContextItems).where(and(
-          eq(generationContextItems.generationRunId, item.generationRunId),
-          eq(generationContextItems.sourceType, item.sourceType),
-          eq(generationContextItems.sourceId, item.sourceId),
-        )).limit(1)
-        resolveIdempotentConflict('generation context item', existing, {
-          workspaceId: item.workspaceId,
-          novelId: item.novelId,
-          generationRunId: item.generationRunId,
-          sourceType: item.sourceType,
-          sourceId: item.sourceId,
-          rank: item.rank,
-          excerptHash: item.excerptHash,
-          excerpt: item.excerpt,
-          sourceStatus: item.sourceStatus,
-          tokenCount: item.tokenCount,
-          selectionReason: item.selectionReason,
-        })
+      const inserted = await db.insert(generationContextItems).values(items).onConflictDoNothing({
+        target: [generationContextItems.generationRunId, generationContextItems.sourceType, generationContextItems.sourceId],
+      }).returning({
+        generationRunId: generationContextItems.generationRunId,
+        sourceType: generationContextItems.sourceType,
+        sourceId: generationContextItems.sourceId,
+      })
+      const insertedKeys = new Set(inserted.map(item => generationContextItemKey(item)))
+      const conflicts = items.filter(item => !insertedKeys.has(generationContextItemKey(item)))
+      if (conflicts.length === 0) return
+      const conflictPredicate = sql.join(conflicts.map(item => sql`(
+        ${generationContextItems.generationRunId} = ${item.generationRunId}
+        AND ${generationContextItems.sourceType} = ${item.sourceType}
+        AND ${generationContextItems.sourceId} = ${item.sourceId}
+      )`), sql` OR `)
+      const existing = await db.select().from(generationContextItems).where(conflictPredicate)
+      const existingByKey = new Map(existing.map(item => [generationContextItemKey(item), item]))
+      for (const item of conflicts) {
+        resolveIdempotentConflict('generation context item', existingByKey.get(generationContextItemKey(item)), generationContextItemExpected(item))
       }
     })
   }
