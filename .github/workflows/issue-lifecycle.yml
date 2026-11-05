@@ -48,17 +48,55 @@ jobs:
         with:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
+      - name: Record disabled Project automation
+        if: ${{ vars.DSH_PROJECT_AUTOMATION_ENABLED != 'true' }}
+        run: echo 'Project lifecycle automation is disabled because DSH_PROJECT_AUTOMATION_ENABLED is not true.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Record fork Project automation skip
+        if: ${{ vars.DSH_PROJECT_AUTOMATION_ENABLED == 'true' && github.event_name != 'issues' && github.event.pull_request.head.repo.full_name != github.repository }}
+        run: echo 'Project lifecycle automation was skipped for this fork pull request.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Validate Project configuration
+        if: ${{ vars.DSH_PROJECT_AUTOMATION_ENABLED == 'true' && (github.event_name == 'issues' || (github.event.pull_request.head.repo.full_name == github.repository && (github.event_name != 'pull_request_review' || github.event.review.state == 'changes_requested'))) }}
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs'
+
+          const config = JSON.parse(readFileSync('.github/issue-management/config.json', 'utf8'))
+          const required = ['organization', 'repository', 'projectNumber', 'projectTitle', 'lifecycleActor', 'priorityField', 'startDateField', 'projectTimeZone', 'statuses']
+          const missing = required.filter((key) => {
+            const value = config[key]
+            if (key === 'projectNumber') return !Number.isSafeInteger(value) || value < 1
+            if (key === 'statuses') return !Array.isArray(value) || value.length === 0 || value.some((status) => typeof status !== 'string' || !status)
+            return typeof value !== 'string' || !value.trim()
+          })
+          if (missing.length > 0) throw new Error(`Issue management config is incomplete: ${missing.join(', ')}`)
+          const requiredStatuses = ['Inbox', 'Backlog', 'Ready', 'In progress', 'In review', 'Done', 'No action']
+          const missingStatuses = requiredStatuses.filter((status) => !config.statuses.includes(status))
+          if (missingStatuses.length > 0) {
+            throw new Error(`Issue management config statuses are missing: ${missingStatuses.join(', ')}`)
+          }
+          try {
+            new Intl.DateTimeFormat('en-US', { timeZone: config.projectTimeZone })
+          } catch {
+            throw new Error('Issue management config projectTimeZone must be a valid IANA timezone')
+          }
+          const configuredRepository = `${config.organization}/${config.repository}`
+          if (configuredRepository !== process.env.GITHUB_REPOSITORY) {
+            throw new Error(`Issue management config repository ${configuredRepository} does not match GITHUB_REPOSITORY ${process.env.GITHUB_REPOSITORY}`)
+          }
+          NODE
       - name: Create project token
         id: app-token
-        if: ${{ github.event_name != 'pull_request_review' || github.event.review.state == 'changes_requested' }}
+        if: ${{ vars.DSH_PROJECT_AUTOMATION_ENABLED == 'true' && (github.event_name == 'issues' || (github.event.pull_request.head.repo.full_name == github.repository && (github.event_name != 'pull_request_review' || github.event.review.state == 'changes_requested'))) }}
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
         with:
           client-id: ${{ vars.DSH_ISSUE_APP_CLIENT_ID }}
           private-key: ${{ secrets.DSH_ISSUE_APP_PRIVATE_KEY }}
-          owner: deepseek-harness
-          repositories: deepseek-harness
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
       - name: Handle repository event
-        if: ${{ github.event_name != 'pull_request_review' || github.event.review.state == 'changes_requested' }}
+        if: ${{ vars.DSH_PROJECT_AUTOMATION_ENABLED == 'true' && (github.event_name == 'issues' || (github.event.pull_request.head.repo.full_name == github.repository && (github.event_name != 'pull_request_review' || github.event.review.state == 'changes_requested'))) }}
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: node .github/issue-management/policy.mjs lifecycle

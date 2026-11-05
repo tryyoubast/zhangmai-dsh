@@ -21,20 +21,120 @@ jobs:
         with:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
-      - name: Create Project read token
-        id: app-token
-        if: ${{ github.event.pull_request.user.type != 'Bot' && github.event.pull_request.user.type != 'App' }}
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
-        with:
-          client-id: ${{ vars.DSH_ISSUE_APP_CLIENT_ID }}
-          private-key: ${{ secrets.DSH_ISSUE_APP_PRIVATE_KEY }}
-          owner: deepseek-harness
-          repositories: deepseek-harness
-          permission-issues: read
-          permission-organization-projects: read
       - name: Validate pull request
-        if: ${{ github.event.pull_request.user.type != 'Bot' && github.event.pull_request.user.type != 'App' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          PROJECT_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: node .github/issue-management/policy.mjs pr
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          import { parseReferences, requiresPullRequestPolicy, validatePullRequest } from './.github/issue-management/policy.mjs'
+
+          const eventPath = process.env.GITHUB_EVENT_PATH
+          const token = process.env.GITHUB_TOKEN
+          const repository = process.env.GITHUB_REPOSITORY ?? ''
+          if (!eventPath) throw new Error('GITHUB_EVENT_PATH is not set')
+          if (!token) throw new Error('GITHUB_TOKEN is not set')
+          const [owner, repositoryName, ...extraRepositoryParts] = repository.split('/')
+          if (!owner || !repositoryName || extraRepositoryParts.length > 0) {
+            throw new Error('GITHUB_REPOSITORY must be owner/repository')
+          }
+
+          const apiBase = new URL(process.env.GITHUB_API_URL ?? 'https://api.github.com')
+          const localHttp = apiBase.protocol === 'http:'
+            && ['127.0.0.1', 'localhost', '[::1]'].includes(apiBase.hostname)
+          if (apiBase.protocol !== 'https:' && !localHttp) {
+            throw new Error('GITHUB_API_URL must use HTTPS')
+          }
+          if (apiBase.username || apiBase.password || apiBase.search || apiBase.hash) {
+            throw new Error('GITHUB_API_URL must not contain credentials, a query, or a fragment')
+          }
+          const apiRoot = `${apiBase.origin}${apiBase.pathname.replace(/\/+$/, '')}`
+          const repositoryPath = `repos/${encodeURIComponent(owner)}/${encodeURIComponent(repositoryName)}`
+          const request = async (path, allow404 = false) => {
+            const response = await fetch(`${apiRoot}/${repositoryPath}/${path}`, {
+              headers: {
+                Accept: 'application/vnd.github+json',
+                Authorization: `Bearer ${token}`,
+                'X-GitHub-Api-Version': '2026-03-10',
+                'User-Agent': 'dsh-issue-policy',
+              },
+              signal: AbortSignal.timeout(15_000),
+            })
+            if (allow404 && response.status === 404) return null
+            if (!response.ok) throw new Error(`GET ${path} returned HTTP ${response.status}`)
+            if (response.status === 204) return null
+            return response.json()
+          }
+          const event = JSON.parse(fs.readFileSync(eventPath, 'utf8'))
+          const pullNumber = Number(event.pull_request?.number)
+          if (!Number.isSafeInteger(pullNumber) || pullNumber < 1) {
+            throw new Error('The event does not contain a valid pull request number')
+          }
+          const [pull, reviewerRequest, reviews] = await Promise.all([
+            request(`pulls/${pullNumber}`),
+            request(`pulls/${pullNumber}/requested_reviewers`),
+            request(`pulls/${pullNumber}/reviews?per_page=100`),
+          ])
+          const policyContext = {
+            isDraft: pull.draft === true,
+            authorType: pull.user?.type ?? '',
+            reviewRequestCount: (reviewerRequest.users?.length ?? 0) + (reviewerRequest.teams?.length ?? 0),
+            reviewCount: reviews.length,
+          }
+          if (!requiresPullRequestPolicy(policyContext)) {
+            process.stdout.write('PR 尚未进入 Issue policy 强制范围。\n')
+          } else {
+            const references = parseReferences({ body: pull.body ?? '', repository })
+            const issues = new Map()
+            const issueLabelErrors = []
+            const validPriorities = new Set(['p0', 'p1', 'p2', 'p3'])
+            for (const number of references.all) {
+              const issue = await request(`issues/${number}`, true)
+              if (!issue || issue.pull_request) continue
+              const labels = issue.labels.map((label) => label.name)
+              const priorityLabels = labels.filter((label) => /^p\d+$/i.test(label))
+              const canonicalPriorityLabels = priorityLabels.filter((label) => validPriorities.has(label))
+              if (references.resolving.includes(number)) {
+                const invalidIssuePriorities = priorityLabels.filter((label) => !validPriorities.has(label))
+                if (invalidIssuePriorities.length > 0) {
+                  issueLabelErrors.push(`#${number} 含不支持的 Priority 标签：${invalidIssuePriorities.join(', ')}`)
+                }
+                if (canonicalPriorityLabels.length > 1) {
+                  issueLabelErrors.push(`#${number} 最多只能有一个 p0–p3 Priority 标签`)
+                }
+              }
+              issues.set(number, {
+                priority: canonicalPriorityLabels.length === 1 ? canonicalPriorityLabels[0] : null,
+              })
+            }
+
+            const labels = pull.labels.map((label) => label.name)
+            const invalidPriorities = labels.filter((label) => /^p\d+$/i.test(label) && !validPriorities.has(label))
+            const noncanonicalPriorities = labels.filter((label) => /^P[0-3]$/.test(label))
+            const errors = [
+              ...validatePullRequest({
+                ...policyContext,
+                labels,
+                references,
+                issues,
+              }),
+              ...issueLabelErrors,
+              ...(invalidPriorities.length > 0
+                ? [`PR 含不支持的 Priority 标签：${invalidPriorities.join(', ')}`]
+                : []),
+              ...(noncanonicalPriorities.length > 0
+                ? [`PR Priority 标签必须使用小写 p0–p3：${noncanonicalPriorities.join(', ')}`]
+                : []),
+            ]
+            if (errors.length > 0) {
+              for (const error of errors.slice(0, 20)) {
+                const safe = error.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A').replace(/:/g, '%3A').replace(/,/g, '%2C')
+                process.stdout.write(`::error::${safe}\n`)
+              }
+              if (errors.length > 20) process.stdout.write(`::error::其余 ${errors.length - 20} 项错误已省略\n`)
+              throw new Error(`Issue policy 未通过，共 ${errors.length} 项`)
+            }
+            process.stdout.write('Issue policy 通过。\n')
+          }
+          NODE
