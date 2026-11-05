@@ -52,6 +52,14 @@ interface Config {
 
 A request whose handling throws (a malformed %-escape hitting `decodeURIComponent`, a client dropping mid-body) is logged as a warning and answered 400 — or the socket destroyed when headers are already out — never a process exit. Disposal pairs `close()` with `closeAllConnections()` because a handler may hold its response open (SSE) and such connections never end on their own; without the force-close, teardown would hang. The package never prints: the URL line belongs to the shell. Per-package operational detail, including the dev-mode bundle watch pipeline, stays in the [README](../../packages/host/webserver/README.md).
 
+## Platform API controller
+
+The optional [novel-authoring HTTP plugin](../../packages/api/novel-authoring-http/README.md) consumes a host-provided `ctx.platformHttpController` implementing `PlatformHttpControllerLike`. Its `handle()` method dispatches authentication and authoring requests and returns a serialized response; the host composes the authentication, principal resolver, and domain services. Registering the carrier alone does not supply this controller or mount these routes.
+
+`AuthHttpRequest` carries method, pathname, headers, optional parsed body, and an optional sanitized peer address. The Web adapter derives the peer from the socket rather than trusting forwarded headers. `AuthHttpResponse` and `NovelAuthoringHttpResponse` carry status, string-valued headers, and a serialized body; the adapter writes those fields to Node's response. The controller's server-resolved principal establishes workspace authority, independently of identifiers in the request body.
+
+The declaring [authentication types](../../packages/identity/user-auth/src/index.ts) and [authoring HTTP types](../../packages/api/novel-authoring-http/src/index.ts) own the exact fields. The carrier keeps route and connection ownership; the injected controller owns application dispatch.
+
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>
@@ -59,6 +67,23 @@ A request whose handling throws (a malformed %-escape hitting `decodeURIComponen
 ## Cordis API
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+
+<a id="ctxplatformhttpcontroller--platformhttpcontrollerlike"></a>
+
+### `ctx.platformHttpController` — `PlatformHttpControllerLike`
+
+The controller method required by the WebServer adapter.
+
+```ts cordis-catalog
+/**
+ * Dispatch one already-bounded HTTP request.
+ * @param request - Parsed request with adapter-supplied headers and peer address.
+ * @returns The status, headers, and serialized response body for the HTTP adapter.
+ */
+handle(request: AuthHttpRequest): Promise<AuthHttpResponse | NovelAuthoringHttpResponse>
+```
+
+Source: [`packages/api/novel-authoring-http/src/index.ts`](../../packages/api/novel-authoring-http/src/index.ts)
 
 <a id="ctxwebserver--webserver"></a>
 

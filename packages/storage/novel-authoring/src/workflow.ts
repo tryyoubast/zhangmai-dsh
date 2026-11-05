@@ -1,3 +1,4 @@
+/** Coordinate persisted run lifecycle, model generation, optional enrichment, and draft materialization. */
 import {
   validateNovelGenerationAdapterResult,
   type DraftGenerationResult,
@@ -44,7 +45,13 @@ export interface NovelGenerationWorkflowResult {
 export class NovelGenerationWorkflowService {
   constructor(private readonly dependencies: NovelGenerationWorkflowDependencies) {}
 
-  /** Create, run, materialize, and complete one idempotent generation request. */
+  /**
+   * Create, run, materialize, and complete one idempotent generation request.
+   * Generation failures attempt to mark the run failed; separate writes are not rolled back together.
+   * @param input - Workspace-scoped generation settings, instruction, context limit, and retry key.
+   * @returns The run ID, generated output, and persisted target/proposal IDs; completed runs reuse saved output.
+   * @throws For failed or cancelled runs, missing or mismatched saved output, or generation and writer failures.
+   */
   async generate(input: NovelGenerationWorkflowInput): Promise<NovelGenerationWorkflowResult> {
     const runId = await this.dependencies.authoring.createGenerationRun({
       workspaceId: input.workspaceId,

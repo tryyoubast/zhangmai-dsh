@@ -1,3 +1,4 @@
+/** Mount bounded JSON HTTP requests and dispatch authentication or principal-scoped authoring routes. */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
@@ -22,7 +23,11 @@ import type {
 
 /** The controller method required by the WebServer adapter. */
 export interface PlatformHttpControllerLike {
-  /** Dispatch one already-bounded HTTP request. */
+  /**
+   * Dispatch one already-bounded HTTP request.
+   * @param request - Parsed request with adapter-supplied headers and peer address.
+   * @returns The status, headers, and serialized response body for the HTTP adapter.
+   */
   handle(request: AuthHttpRequest): Promise<AuthHttpResponse | NovelAuthoringHttpResponse>
 }
 
@@ -48,12 +53,14 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
+/** Authoring request whose principal has already been resolved by the platform controller. */
 export interface NovelAuthoringHttpRequest {
   readonly method: string
   readonly path: string
   readonly body?: unknown
 }
 
+/** Serialized authoring result or safe error ready for the HTTP adapter. */
 export interface NovelAuthoringHttpResponse {
   readonly status: number
   readonly headers: Readonly<Record<string, string>>
@@ -151,6 +158,7 @@ export interface PlatformHttpServices {
   readonly authoring: (principal: AuthPrincipal) => NovelAuthoringHttpServices
 }
 
+/** Domain services bound to the authenticated principal; absent optional operations return HTTP 404. */
 export interface NovelAuthoringHttpServices {
   readonly workspace: Pick<WorkspaceAuthoringService, 'createWorkspace' | 'listWorkspaces' | 'createNovel'> & Partial<Pick<WorkspaceAuthoringService, 'inviteMember' | 'changeMemberRole' | 'revokeMember' | 'listMembers' | 'transferOwnership' | 'archiveWorkspace' | 'restoreWorkspace'>>
   readonly authoring: Pick<NovelAuthoringService, 'createGenerationRun' | 'createDraftProposal'>
@@ -207,6 +215,12 @@ function unauthorized(): NovelAuthoringHttpResponse {
 export class PlatformHttpController {
   constructor(private readonly services: PlatformHttpServices) {}
 
+  /**
+   * Dispatch auth routes publicly and resolve a principal before other routes.
+   * @param request - Bounded request with credentials in adapter-supplied headers.
+   * @returns The routed response, or HTTP 401 when no principal resolves.
+   * @throws When principal resolution, service composition, or a delegated route fails.
+   */
   async handle(request: AuthHttpRequest): Promise<AuthHttpResponse | NovelAuthoringHttpResponse> {
     if (request.path.startsWith('/api/auth/')) return this.services.auth.handle(request)
     const principal = await this.services.resolvePrincipal(request)
@@ -229,6 +243,11 @@ export class NovelAuthoringHttpController {
     private readonly services: NovelAuthoringHttpServices,
   ) {}
 
+  /**
+   * Dispatch an authoring request using this controller's authenticated principal.
+   * @param request - Method, path, and parsed or serialized JSON body.
+   * @returns A JSON result or safe HTTP error; domain failures are mapped to response codes.
+   */
   async handle(request: NovelAuthoringHttpRequest): Promise<NovelAuthoringHttpResponse> {
     try {
       const method = request.method.toUpperCase()

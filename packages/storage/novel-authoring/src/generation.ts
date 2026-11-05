@@ -1,10 +1,13 @@
+/** Generate draft-only model output with durable context snapshots and idempotent result persistence. */
 import { rankContextCandidates, type ContextCandidate } from './index.ts'
 import type {
   GenerationContextSelectionInput,
   LongformAuthoringService,
 } from './index.ts'
 
+/** A saved selection lacks exact text or lifecycle status and must be rerun under new run and retry IDs. */
 export class LegacyGenerationContextRequiresRerunError extends Error {
+  /** Stable identifier for context that cannot be restored without changing model inputs. */
   readonly code = 'LEGACY_GENERATION_CONTEXT_REQUIRES_RERUN'
 
   constructor(readonly generationRunId: string) {
@@ -36,7 +39,7 @@ export interface GenerationContextWriter {
   selectAndRecordContext(input: GenerationContextSelectionInput): Promise<readonly ContextCandidate[]>
 }
 
-/** The durable shape returned by LongformAuthoringService.listContextItems. */
+/** Saved context fields returned by LongformAuthoringService.listContextItems, including legacy nulls. */
 export interface PersistedGenerationContextItem {
   readonly workspaceId: string
   readonly novelId: string
@@ -109,6 +112,7 @@ export interface GenerationResultRepository {
   withIdempotencyLock?<T>(input: GenerationResultLookup, callback: () => Promise<T>): Promise<T>
 }
 
+/** Host-owned retrieval, context snapshots, model execution, and result persistence for generation. */
 export interface LongformGenerationServiceDependencies {
   readonly candidateRepository: PersistedContextCandidateRepository
   readonly contextWriter: GenerationContextWriter | Pick<LongformAuthoringService, 'selectAndRecordContext'>
@@ -117,6 +121,7 @@ export interface LongformGenerationServiceDependencies {
   readonly resultRepository: GenerationResultRepository
 }
 
+/** New generation request scoped to a run; its retry key must remain bound to that run. */
 export interface DraftGenerationInput {
   readonly workspaceId: string
   readonly novelId: string
@@ -162,7 +167,12 @@ function validateDraftTree(value: unknown, path: string): void {
   }
 }
 
-/** Validate provider or enrichment output before it reaches a draft writer. */
+/**
+ * Validate provider or enrichment output before it reaches a draft writer.
+ * @param value - Untrusted structured model output containing records or proposals.
+ * @returns Validated record and proposal arrays; either omitted array becomes empty.
+ * @throws For malformed arrays, non-object items, SQL or DDL fields, or status fields other than draft.
+ */
 export function validateNovelGenerationAdapterResult(value: unknown): NovelGenerationAdapterResult {
   if (!isRecord(value)) throw new Error('generation adapter must return structured output')
   const records = value.records
@@ -243,18 +253,33 @@ export class LongformGenerationService {
 
   constructor(private readonly dependencies: LongformGenerationServiceDependencies) {}
 
-  /** Return the durable result for a retry without invoking the model adapter. */
+  /**
+   * Look up a durable result without invoking the model adapter.
+   * @param input - Workspace, novel, and retry key delegated to the result repository.
+   * @returns The saved result, or undefined when none exists; repository failures reject.
+   */
   async findPersistedResult(input: GenerationResultLookup): Promise<DraftGenerationResult | undefined> {
     return this.dependencies.resultRepository.findByIdempotencyKey(input)
   }
 
-  /** Retrieve, rank, persist, and generate one idempotent draft result. */
+  /**
+   * Generate validated output, reusing saved results and exact context for retries.
+   * Concurrent calls share work in this process; serialization across processes requires the repository's optional lock.
+   * @param input - Run-scoped instruction, retry key, and non-negative context limit; zero skips retrieval.
+   * @returns The durable result, sharing in-flight work and reusing an existing result for the same run.
+   * @throws For invalid input, mismatched run or tenant identity, unrestorable context, adapter errors, or persistence failure.
+   */
   async generate(input: DraftGenerationInput): Promise<DraftGenerationResult> {
     this.validateInput(input)
     return this.runWithIdempotency(input, () => this.generateOnce(input))
   }
 
-  /** Continue a run using only the context already persisted for that run. */
+  /**
+   * Continue a run using its exact persisted context, or reuse an already saved result.
+   * @param input - Run identity, instruction, and retry key; source records are never rehydrated here.
+   * @returns The durable draft result after validation and persistence.
+   * @throws For invalid input or identity, missing reader or context, legacy snapshots, or adapter and store failures.
+   */
   async continue(input: DraftGenerationContinuationInput): Promise<DraftGenerationResult> {
     this.validateInput(input)
     return this.runWithIdempotency(input, async () => {

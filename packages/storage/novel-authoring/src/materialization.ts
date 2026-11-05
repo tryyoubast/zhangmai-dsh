@@ -1,3 +1,4 @@
+/** Convert structured provider records to fixed draft writers and separate review proposals. */
 import type {
   CharacterDraftInput,
   CharacterSkillDraftInput,
@@ -39,12 +40,14 @@ interface GeneratedRecord extends Record<string, unknown> {
   clientKey?: string
 }
 
+/** Target and review proposal IDs produced for one generated record or proposed update. */
 export interface MaterializedDraftRecord {
   readonly targetType: NovelDraftTargetType
   readonly targetId: string
   readonly proposalId: string
 }
 
+/** Materialized targets and proposals in provider record order, followed by provider proposal order. */
 export interface MaterializationResult {
   readonly records: readonly MaterializedDraftRecord[]
 }
@@ -244,11 +247,16 @@ export class GenerationMaterializationService {
 
   constructor(private readonly writer: DraftRecordWriter) {}
 
-  /** Materialize all supported provider records and their review proposals.
+  /**
+   * Materialize all supported provider records and their review proposals.
    *
    * Repeated calls for one generation share the completed result or in-flight
    * work. Durable writers still enforce the same idempotency keys after a
-   * process restart.
+   * process restart. This service opens no encompassing transaction and does
+   * not undo earlier writes when a later record or proposal fails.
+   * @param result - Run-scoped structured output whose order determines per-record retry keys.
+   * @returns Target and proposal IDs after every write succeeds; update proposals refer to existing targets.
+   * @throws For unsafe or unsupported output, missing fields or references, or any writer failure.
    */
   async materialize(result: DraftGenerationResult): Promise<MaterializationResult> {
     const key = this.key(result)

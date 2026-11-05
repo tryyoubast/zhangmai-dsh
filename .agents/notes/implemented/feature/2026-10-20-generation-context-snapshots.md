@@ -1,8 +1,8 @@
 # Agent Note: Replayable generation context snapshots
 
-English | [中文](2026-10-20-generation-context-snapshots.zh.md)
-
 Status: implemented
+
+English | [中文](2026-10-20-generation-context-snapshots.zh.md)
 
 ## Problem
 

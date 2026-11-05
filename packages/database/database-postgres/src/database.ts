@@ -1,3 +1,4 @@
+/** Own PostgreSQL pools, request-scoped RLS transactions, and deployment migration execution. */
 import { existsSync } from 'node:fs'
 import { readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
@@ -14,12 +15,20 @@ import type { DatabaseClient, DatabaseConfig, RequestDatabaseContext } from './t
 /** The typed Drizzle database for the application schemas. */
 export type DshDatabase = NodePgDatabase<typeof schema>
 
-/** Create a Drizzle database bound to one checked-out PostgreSQL connection. */
+/**
+ * Create a Drizzle database bound to one checked-out PostgreSQL connection.
+ * @param client - Connection whose release and transaction lifecycle remain caller-owned.
+ * @returns A typed database using the supplied connection without creating a pool.
+ */
 export function drizzleFromPoolClient(client: PoolClient): DshDatabase {
   return drizzle(client, { schema })
 }
 
-/** Convert trusted request identity into transaction-local PostgreSQL GUC values. */
+/**
+ * Convert trusted request identity into transaction-local PostgreSQL GUC values.
+ * @param context - Server-resolved user, workspace, and actor identity.
+ * @returns RLS setting names and values; an absent agent principal becomes an empty string.
+ */
 export function requestContextSettings(context: RequestDatabaseContext): readonly [string, string][] {
   return [
     ['app.user_id', context.userId],
@@ -29,7 +38,14 @@ export function requestContextSettings(context: RequestDatabaseContext): readonl
   ]
 }
 
-/** Execute a callback with RLS identity settings scoped to one database transaction. */
+/**
+ * Execute a callback with RLS identity settings scoped to one database transaction.
+ * The wrapper commits on success and rolls back on rejection; transaction-local setting overrides revert at transaction end.
+ * @param database - Pool-backed database on which this wrapper opens the transaction.
+ * @param context - Trusted identity applied only within this transaction.
+ * @param callback - Work using the supplied transaction; it must not retain that database.
+ * @returns The callback result after the transaction commits; database and callback failures reject.
+ */
 export async function withRequestContext<T>(
   database: DatabaseClient<DshDatabase>,
   context: RequestDatabaseContext,
@@ -93,7 +109,13 @@ function createRolePool(url: string, role: string, config?: DatabaseConfig): Poo
   })
 }
 
-/** Require a runtime login to inherit exactly its configured dsh_* role. */
+/**
+ * Require a runtime login to inherit exactly its configured dsh_* role.
+ * @param grantedRuntimeRoles - Known dsh_* roles granted to the login.
+ * @param inheritedRoles - All roles inherited by the login, excluding the login itself.
+ * @param selectedRole - The sole role the connection must be allowed to assume.
+ * @throws When either role list contains a different or additional role.
+ */
 export function assertRuntimeRoleMembership(
   grantedRuntimeRoles: string[],
   inheritedRoles: string[],
@@ -107,7 +129,11 @@ export function assertRuntimeRoleMembership(
   }
 }
 
-/** Keep released transaction wrappers from escaping the runner's per-migration transaction. */
+/**
+ * Keep released transaction wrappers from escaping the runner's per-migration transaction.
+ * @param source - Migration SQL with optional outer BEGIN/COMMIT and Drizzle statement separators.
+ * @returns Non-empty SQL statements with the outer transaction wrapper removed.
+ */
 export function migrationStatements(source: string): string[] {
   const normalized = source
     .replace(/^\s*BEGIN\s*;\s*/i, '')
@@ -115,7 +141,12 @@ export function migrationStatements(source: string): string[] {
   return normalized.split('--> statement-breakpoint').filter(statement => statement.trim() !== '')
 }
 
-/** Resolve the packaged migration directory from either source or bundled entry points. */
+/**
+ * Resolve the packaged migration directory from either source or bundled entry points.
+ * @param entryPointUrl - File URL of the source or bundled database module.
+ * @returns The adjacent migrations directory.
+ * @throws When the directory has no Drizzle journal or the entry point is not a valid file URL.
+ */
 export function resolveMigrationsDirectory(entryPointUrl = import.meta.url): string {
   const directory = resolve(dirname(fileURLToPath(entryPointUrl)), '../migrations')
   if (!existsSync(resolve(directory, 'meta/_journal.json'))) {
@@ -124,7 +155,13 @@ export function resolveMigrationsDirectory(entryPointUrl = import.meta.url): str
   return directory
 }
 
-/** Apply the packaged SQL migration journal using the deployment-only role. */
+/**
+ * Apply the packaged SQL migration journal using the deployment-only role.
+ * After packaged migrations load successfully, closes its pool when connection or execution finishes or fails.
+ * Serializes runners with an advisory lock and commits each migration separately.
+ * @param databaseUrl - Deployment login URL; defaults to validated DATABASE_MIGRATION_URL.
+ * @throws When bootstrap is missing, recorded history differs, role checks fail, or SQL execution fails.
+ */
 export async function migrateDatabase(databaseUrl = resolveMigrationDatabaseUrl()): Promise<void> {
   const pool = createRolePool(databaseUrl, 'dsh_migrator')
   const migrationsDirectory = resolveMigrationsDirectory()
@@ -212,7 +249,12 @@ export async function migrateDatabase(databaseUrl = resolveMigrationDatabaseUrl(
   }
 }
 
-/** Create a Drizzle database and an owned PostgreSQL connection pool. */
+/**
+ * Create a Drizzle database and an owned PostgreSQL connection pool.
+ * @param config - Runtime pool settings; defaults to the validated process environment.
+ * @returns A client whose caller must close the pool after in-flight work settles.
+ * @throws For an unsupported runtime role; connection and role-membership failures reject database work.
+ */
 export function createDatabase(config: DatabaseConfig = resolveDatabaseConfig()): DatabaseClient<DshDatabase> {
   assertDatabaseRuntimeRole(config.runtimeRole)
   const pool = createRolePool(config.url, config.runtimeRole, config)

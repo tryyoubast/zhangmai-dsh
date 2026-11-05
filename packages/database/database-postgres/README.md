@@ -1,6 +1,6 @@
 ---
 description: "PostgreSQL and Drizzle foundation for multi-tenant authentication, workspaces, and AI novel authoring."
-kind: "package-reference"
+kind: "package-library"
 ---
 
 # @deepseek-ai/dsh-database-postgres
@@ -11,7 +11,23 @@ English | [中文](README.zh.md)
 
 This host-only package owns the PostgreSQL connection pool, Drizzle schema, and reviewed SQL foundation for the multi-user novel authoring platform. PostgreSQL is the production source of truth; the existing SQLite storage packages remain separate KV/session infrastructure.
 
-## Configuration
+## Table of Contents
+
+- [Use this package](#use-this-package)
+- [Understand the implementation](#understand-the-implementation)
+- [Further Exploration](#further-exploration)
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [Dev Note](#dev-note)
+
+-----
+
+<a id="use-this-package"></a>
+## Use this package
+
+Import this library as a service dependency; the caller owns the pool and its shutdown.
+
+### Configuration
 
 Application startup requires `DATABASE_URL` for a non-superuser login that inherits exactly one selected `dsh_*_runtime` role. The package never falls back to SQLite, an in-memory database, or a local file.
 
@@ -32,7 +48,13 @@ try {
 }
 ```
 
-## Database layout
+-----
+
+<a id="understand-the-implementation"></a>
+## Understand the implementation
+
+<details>
+<summary>Implementation internals — click to expand</summary>
 
 The migration journal contains fourteen immutable entries. `0001_auth_workspace_novel_ai.sql` creates authentication, workspace, novel, AI-run, proposal, and audit tables; `0002_workspace_drafts_and_hardening.sql` adds workspace-consistent references, draft-only worker policies, lifecycle guards, and least-privilege grants; `0003_remove_redundant_prefix_indexes.sql` removes redundant prefix indexes; `0004_novel_longform_context.sql` adds outlines, chapters, chapter versions, summaries, facts, timeline events, and generation-context selections; `0005_longform_publication_hardening.sql` adds long-form lifecycle fields and publication guards; `0006_publication_and_rollback.sql` adds database-owned publication and rollback transactions; `0007_secure_rollback.sql` makes rollback an invoker-only service operation that appends a new version inside a tightly scoped transaction context; `0008_generation_results.sql` stores structured generation output under an idempotency key with worker-only draft writes; `0009_generation_queue_payload.sql` retains queued generation instructions and context limits for worker replay; `0010_generation_queue_claim.sql` lets a bound worker atomically claim a browser-created queued run; `0011_generation_claim_rls_hardening.sql` keeps that claim exception separate from the bound-worker write predicate for already-migrated databases; `0012_generation_context_snapshots.sql` stores the exact context excerpts and source statuses used for generation replay; `0013_legacy_context_rerun_marker.sql` marks incomplete legacy snapshots for rerun; and `0014_novel_context_fulltext_indexes.sql` adds the GIN expression indexes used by bounded full-text context retrieval.
 
@@ -60,10 +82,38 @@ Workers can write draft records and draft versions in their bound workspace. Rev
 
 The framework-neutral authentication routes live in [`@deepseek-ai/dsh-user-auth`](../../identity/user-auth/README.md). This package supplies the PostgreSQL stores and tables used by those routes; it does not own HTTP routing, cookies, JWT issuance, Redis limits, or mail delivery.
 
+</details>
+
+-----
+
+<a id="further-exploration"></a>
+## Further Exploration
+
+- [Database subsystem](../../../docs/subsystems/database.md): pool, RLS, and migration ownership.
+
+-----
+
+<a id="model-experience"></a>
 ## Model Experience
 
-Nothing in this package is model-visible. It exposes host-side storage to application services; prompts, tools, and agent-loop behavior remain unchanged.
+None, as database connections and persistence serve application services without constructing model requests.
+
+#### KV Cache effect
+
+This package does not construct or mutate model input prefixes; callers and providers own model caching.
 
 ## Known Limitations and Deferred Work
 
+<a id="known-limitations-and-deferred-work"></a>
+
 - This package provides database infrastructure and enforcement, not the registration, password hashing, HTTP authentication, Redis rate-limit, email, Web review, or novel-authoring orchestration services. The caller must validate AI JSON against a versioned schema and set the authenticated transaction context. Migration `0002` stops with a diagnostic if legacy generation runs cannot be assigned unambiguously to a novel or a non-draft create proposal has no target; repair those rows before retrying. Long-form records and publication hardening are supplied by migrations `0004` and `0005`; publication is supplied by `0006`, secure monotonic rollback by `0007`, durable generation-result idempotency by `0008`, queued instruction replay by `0009`, atomic worker claiming by `0010`, the follow-up RLS repair by `0011`, and replayable context snapshots by `0012`. Apply all entries with the controlled migration runner after confirming a recoverable backup.
+
+<a id="dev-note"></a>
+### Dev Note
+
+<details>
+<summary>Working context for maintainers — click to expand</summary>
+
+None.
+
+</details>

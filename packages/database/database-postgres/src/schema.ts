@@ -1,3 +1,4 @@
+/** Typed Drizzle mappings for platform tables; versioned SQL migrations own RLS and database procedures. */
 import {
   check,
   boolean,
@@ -18,13 +19,18 @@ import { sql } from 'drizzle-orm'
 
 const instant = (name: string) => timestamp(name, { withTimezone: true, mode: 'date' })
 
-/** PostgreSQL schemas owned by the platform. */
+/** Authentication schema containing users and hashed credential material. */
 export const authSchema = pgSchema('auth')
+/** Workspace ownership and membership schema used by tenant access policies. */
 export const appSchema = pgSchema('app')
+/** Novel content schema containing draft entities, chapter bodies, and version history. */
 export const novelSchema = pgSchema('novel')
+/** Generation schema containing durable requests, replay context, results, and review proposals. */
 export const aiSchema = pgSchema('ai')
+/** Security schema containing attributed audit records. */
 export const securitySchema = pgSchema('security')
 
+/** Account records with normalized-email uniqueness, password hashes, and login lock state. */
 export const users = authSchema.table('users', {
   id: uuid('id').defaultRandom().primaryKey(),
   email: text('email').notNull(),
@@ -41,6 +47,7 @@ export const users = authSchema.table('users', {
   deletedAt: instant('deleted_at'),
 })
 
+/** Hashed browser or official-client session credentials with expiry and revocation metadata. */
 export const sessions = authSchema.table('sessions', {
   id: uuid('id').defaultRandom().primaryKey(),
   userId: uuid('user_id').notNull().references(() => users.id),
@@ -56,6 +63,7 @@ export const sessions = authSchema.table('sessions', {
   userExpiryIndex: index('sessions_user_expiry_idx').on(table.userId, table.expiresAt),
 }))
 
+/** Hashed refresh-token families with consumed, revoked, and replacement-token metadata. */
 export const refreshTokens = authSchema.table('refresh_tokens', {
   id: uuid('id').defaultRandom().primaryKey(),
   userId: uuid('user_id').notNull().references(() => users.id),
@@ -72,6 +80,7 @@ export const refreshTokens = authSchema.table('refresh_tokens', {
   userIndex: index('refresh_tokens_user_idx').on(table.userId),
 }))
 
+/** Hashed one-time email verification tokens with expiry and consumption timestamps. */
 export const emailVerificationTokens = authSchema.table('email_verification_tokens', {
   id: uuid('id').defaultRandom().primaryKey(),
   userId: uuid('user_id').notNull().references(() => users.id),
@@ -81,6 +90,7 @@ export const emailVerificationTokens = authSchema.table('email_verification_toke
   createdAt: instant('created_at').notNull().defaultNow(),
 })
 
+/** Hashed one-time password reset tokens with expiry and consumption timestamps. */
 export const passwordResetTokens = authSchema.table('password_reset_tokens', {
   id: uuid('id').defaultRandom().primaryKey(),
   userId: uuid('user_id').notNull().references(() => users.id),
@@ -90,6 +100,7 @@ export const passwordResetTokens = authSchema.table('password_reset_tokens', {
   createdAt: instant('created_at').notNull().defaultNow(),
 })
 
+/** Tenant records with an owning user and lifecycle status; membership is stored separately. */
 export const workspaces = appSchema.table('workspaces', {
   id: uuid('id').defaultRandom().primaryKey(),
   ownerUserId: uuid('owner_user_id').notNull().references(() => users.id),
@@ -102,6 +113,7 @@ export const workspaces = appSchema.table('workspaces', {
   ownerIndex: index('workspaces_owner_idx').on(table.ownerUserId),
 }))
 
+/** Workspace roles keyed by workspace and user; revocation retains the membership row. */
 export const workspaceMembers = appSchema.table('workspace_members', {
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
   userId: uuid('user_id').notNull().references(() => users.id),
@@ -115,6 +127,7 @@ export const workspaceMembers = appSchema.table('workspace_members', {
 
 const jsonAttributes = (name: string) => jsonb(name).$type<Record<string, unknown>>().notNull().default({})
 
+/** Workspace-owned novel metadata with versioned JSON attributes and creator attribution. */
 export const novels = novelSchema.table('novels', {
   id: uuid('id').defaultRandom().primaryKey(),
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
@@ -130,6 +143,7 @@ export const novels = novelSchema.table('novels', {
   workspaceIdKey: unique('novels_workspace_id_id_key').on(table.workspaceId, table.id),
 }))
 
+/** Novel character drafts and published state with generation provenance and retry keys. */
 export const characters = novelSchema.table('characters', {
   id: uuid('id').defaultRandom().primaryKey(),
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
@@ -164,6 +178,7 @@ export const characters = novelSchema.table('characters', {
   statusCheck: check('characters_status_check', sql`${table.status} IN ('draft', 'published', 'archived', 'deleted')`),
 }))
 
+/** Character content snapshots keyed by character and version number. */
 export const characterVersions = novelSchema.table('character_versions', {
   id: uuid('id').defaultRandom().primaryKey(),
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
@@ -195,6 +210,7 @@ export const characterVersions = novelSchema.table('character_versions', {
   statusCheck: check('character_versions_status_check', sql`${table.status} IN ('draft', 'published', 'archived', 'deleted')`),
 }))
 
+/** Novel skill records with lifecycle state, current version, and generation provenance. */
 export const skills = novelSchema.table('skills', {
   id: uuid('id').defaultRandom().primaryKey(),
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
@@ -229,6 +245,7 @@ export const skills = novelSchema.table('skills', {
   statusCheck: check('skills_status_check', sql`${table.status} IN ('draft', 'published', 'archived', 'deleted')`),
 }))
 
+/** Skill content snapshots keyed by skill and version number. */
 export const skillVersions = novelSchema.table('skill_versions', {
   id: uuid('id').defaultRandom().primaryKey(),
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
@@ -260,6 +277,7 @@ export const skillVersions = novelSchema.table('skill_versions', {
   statusCheck: check('skill_versions_status_check', sql`${table.status} IN ('draft', 'published', 'archived', 'deleted')`),
 }))
 
+/** Novel location records with lifecycle state and workspace-scoped generation retry keys. */
 export const locations = novelSchema.table('locations', {
   id: uuid('id').defaultRandom().primaryKey(),
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
@@ -295,6 +313,7 @@ export const locations = novelSchema.table('locations', {
   statusCheck: check('locations_status_check', sql`${table.status} IN ('draft', 'published', 'archived', 'deleted')`),
 }))
 
+/** Novel faction records with lifecycle state and workspace-scoped generation retry keys. */
 export const factions = novelSchema.table('factions', {
   id: uuid('id').defaultRandom().primaryKey(),
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
@@ -330,6 +349,7 @@ export const factions = novelSchema.table('factions', {
   statusCheck: check('factions_status_check', sql`${table.status} IN ('draft', 'published', 'archived', 'deleted')`),
 }))
 
+/** Novel item records with lifecycle state and workspace-scoped generation retry keys. */
 export const items = novelSchema.table('items', {
   id: uuid('id').defaultRandom().primaryKey(),
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
@@ -365,6 +385,7 @@ export const items = novelSchema.table('items', {
   statusCheck: check('items_status_check', sql`${table.status} IN ('draft', 'published', 'archived', 'deleted')`),
 }))
 
+/** Novel storyline records with lifecycle state and workspace-scoped generation retry keys. */
 export const storylines = novelSchema.table('storylines', {
   id: uuid('id').defaultRandom().primaryKey(),
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
@@ -400,6 +421,7 @@ export const storylines = novelSchema.table('storylines', {
   statusCheck: check('storylines_status_check', sql`${table.status} IN ('draft', 'published', 'archived', 'deleted')`),
 }))
 
+/** Location content snapshots tied to the same workspace, novel, and source generation run. */
 export const locationVersions = novelSchema.table('location_versions', {
   id: uuid('id').defaultRandom().primaryKey(),
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
@@ -430,6 +452,7 @@ export const locationVersions = novelSchema.table('location_versions', {
   statusCheck: check('location_versions_status_check', sql`${table.status} IN ('draft', 'published', 'archived', 'deleted')`),
 }))
 
+/** Faction content snapshots tied to the same workspace, novel, and source generation run. */
 export const factionVersions = novelSchema.table('faction_versions', {
   id: uuid('id').defaultRandom().primaryKey(),
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
@@ -460,6 +483,7 @@ export const factionVersions = novelSchema.table('faction_versions', {
   statusCheck: check('faction_versions_status_check', sql`${table.status} IN ('draft', 'published', 'archived', 'deleted')`),
 }))
 
+/** Item content snapshots tied to the same workspace, novel, and source generation run. */
 export const itemVersions = novelSchema.table('item_versions', {
   id: uuid('id').defaultRandom().primaryKey(),
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
@@ -490,6 +514,7 @@ export const itemVersions = novelSchema.table('item_versions', {
   statusCheck: check('item_versions_status_check', sql`${table.status} IN ('draft', 'published', 'archived', 'deleted')`),
 }))
 
+/** Storyline content snapshots tied to the same workspace, novel, and source generation run. */
 export const storylineVersions = novelSchema.table('storyline_versions', {
   id: uuid('id').defaultRandom().primaryKey(),
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
@@ -520,6 +545,7 @@ export const storylineVersions = novelSchema.table('storyline_versions', {
   statusCheck: check('storyline_versions_status_check', sql`${table.status} IN ('draft', 'published', 'archived', 'deleted')`),
 }))
 
+/** Entity-relation content snapshots keyed by workspace, relation, and version number. */
 export const entityRelationVersions = novelSchema.table('entity_relation_versions', {
   id: uuid('id').defaultRandom().primaryKey(),
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
@@ -551,6 +577,7 @@ export const entityRelationVersions = novelSchema.table('entity_relation_version
   statusCheck: check('entity_relation_versions_status_check', sql`${table.status} IN ('draft', 'published', 'archived', 'deleted')`),
 }))
 
+/** Character-to-skill links with relation metadata and generation provenance in one novel. */
 export const characterSkills = novelSchema.table('character_skills', {
   id: uuid('id').notNull().defaultRandom(),
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
@@ -592,6 +619,7 @@ export const characterSkills = novelSchema.table('character_skills', {
   statusCheck: check('character_skills_status_check', sql`${table.status} IN ('draft', 'published', 'archived', 'deleted')`),
 }))
 
+/** Character-to-skill link snapshots keyed by link and version number. */
 export const characterSkillVersions = novelSchema.table('character_skill_versions', {
   id: uuid('id').defaultRandom().primaryKey(),
   workspaceId: uuid('workspace_id').notNull(),
@@ -627,6 +655,7 @@ export const characterSkillVersions = novelSchema.table('character_skill_version
   statusCheck: check('character_skill_versions_status_check', sql`${table.status} IN ('draft', 'published', 'archived', 'deleted')`),
 }))
 
+/** Typed relationships between novel entities with lifecycle, strength, and provenance metadata. */
 export const entityRelations = novelSchema.table('entity_relations', {
   id: uuid('id').defaultRandom().primaryKey(),
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
@@ -670,6 +699,7 @@ export const entityRelations = novelSchema.table('entity_relations', {
   statusCheck: check('entity_relations_status_check', sql`${table.status} IN ('draft', 'published', 'archived', 'deleted')`),
 }))
 
+/** Structured novel outlines with reviewable lifecycle state and current version numbers. */
 export const outlines = novelSchema.table('outlines', {
   id: uuid('id').defaultRandom().primaryKey(),
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
@@ -703,6 +733,7 @@ export const outlines = novelSchema.table('outlines', {
   versionCheck: check('outlines_version_check', sql`${table.currentVersionNo} > 0`),
 }))
 
+/** Chapter metadata with novel-scoped chapter numbers; chapter bodies live in version records. */
 export const chapters = novelSchema.table('chapters', {
   id: uuid('id').defaultRandom().primaryKey(),
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
@@ -741,6 +772,7 @@ export const chapters = novelSchema.table('chapters', {
   versionCheck: check('chapters_version_check', sql`${table.currentVersionNo} > 0`),
 }))
 
+/** Chapter body versions stored inline up to 1 MiB or by object key above that limit. */
 export const chapterVersions = novelSchema.table('chapter_versions', {
   id: uuid('id').defaultRandom().primaryKey(),
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
@@ -787,6 +819,7 @@ export const chapterVersions = novelSchema.table('chapter_versions', {
   )`),
 }))
 
+/** Chapter-version summaries with content digests and one row per summary kind. */
 export const chapterSummaries = novelSchema.table('chapter_summaries', {
   id: uuid('id').defaultRandom().primaryKey(),
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
@@ -829,6 +862,7 @@ export const chapterSummaries = novelSchema.table('chapter_summaries', {
   chapterIndex: index('chapter_summaries_workspace_chapter_idx').on(table.workspaceId, table.novelId, table.chapterId, table.createdAt.desc()),
 }))
 
+/** Novel facts with fact-key uniqueness among rows without a deletion timestamp and optional chapter sources. */
 export const storyFacts = novelSchema.table('story_facts', {
   id: uuid('id').defaultRandom().primaryKey(),
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
@@ -879,6 +913,7 @@ export const storyFacts = novelSchema.table('story_facts', {
   schemaVersionCheck: check('story_facts_schema_version_check', sql`${table.attributesSchemaVersion} > 0`),
 }))
 
+/** Novel timeline events with event-key uniqueness among rows without a deletion timestamp and optional chapter provenance. */
 export const timelineEvents = novelSchema.table('timeline_events', {
   id: uuid('id').defaultRandom().primaryKey(),
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
@@ -932,6 +967,7 @@ export const timelineEvents = novelSchema.table('timeline_events', {
   schemaVersionCheck: check('timeline_events_schema_version_check', sql`${table.attributesSchemaVersion} > 0`),
 }))
 
+/** Ranked generation context snapshots; nullable excerpts identify legacy selections needing a rerun. */
 export const generationContextItems = aiSchema.table('generation_context_items', {
   id: uuid('id').defaultRandom().primaryKey(),
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
@@ -960,6 +996,7 @@ export const generationContextItems = aiSchema.table('generation_context_items',
   tokenCountCheck: check('generation_context_items_token_count_check', sql`${table.tokenCount} >= 0`),
 }))
 
+/** Workspace-scoped idempotent generation requests with worker identity, heartbeat, and terminal status. */
 export const generationRuns = aiSchema.table('generation_runs', {
   id: uuid('id').defaultRandom().primaryKey(),
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
@@ -997,6 +1034,7 @@ export const generationRuns = aiSchema.table('generation_runs', {
   contextLimitCheck: check('generation_runs_context_limit_check', sql`${table.contextLimit} >= 0 AND ${table.contextLimit} <= 128`),
 }))
 
+/** Reviewable generated edits with target identity, optional base version, and reviewer attribution. */
 export const generationProposals = aiSchema.table('generation_proposals', {
   id: uuid('id').defaultRandom().primaryKey(),
   generationRunId: uuid('generation_run_id').notNull(),
@@ -1065,6 +1103,7 @@ export const generationResults = aiSchema.table('generation_results', {
     .on(table.workspaceId, table.novelId, table.idempotencyKey),
 }))
 
+/** Attributed security actions with optional workspace scope and structured metadata. */
 export const auditEvents = securitySchema.table('audit_events', {
   id: uuid('id').defaultRandom().primaryKey(),
   workspaceId: uuid('workspace_id').references(() => workspaces.id),
@@ -1080,23 +1119,43 @@ export const auditEvents = securitySchema.table('audit_events', {
   workspaceIndex: index('audit_events_workspace_idx').on(table.workspaceId, table.createdAt),
 }))
 
+/** Selected account row including the password hash and account lock state; keep it server-side. */
 export type User = typeof users.$inferSelect
+/** Selected session row containing a token hash and expiry and revocation metadata. */
 export type Session = typeof sessions.$inferSelect
+/** Selected tenant row with its owner and lifecycle state. */
 export type Workspace = typeof workspaces.$inferSelect
+/** Selected workspace membership row, including revoked memberships when queried. */
 export type WorkspaceMember = typeof workspaceMembers.$inferSelect
+/** Selected workspace-owned novel row with JSON attributes and creator attribution. */
 export type Novel = typeof novels.$inferSelect
+/** Selected character row with current version and generation provenance. */
 export type Character = typeof characters.$inferSelect
+/** Selected skill row with current version and generation provenance. */
 export type Skill = typeof skills.$inferSelect
+/** Selected character-to-skill link row with lifecycle state and relation attributes. */
 export type CharacterSkill = typeof characterSkills.$inferSelect
+/** Selected historical character-to-skill link row with its content snapshot. */
 export type CharacterSkillVersion = typeof characterSkillVersions.$inferSelect
+/** Selected outline row with structured content and current version metadata. */
 export type Outline = typeof outlines.$inferSelect
+/** Selected chapter metadata row; its body is resolved through chapter versions. */
 export type Chapter = typeof chapters.$inferSelect
+/** Selected chapter body version with either inline text or an object-storage key. */
 export type ChapterVersion = typeof chapterVersions.$inferSelect
+/** Selected summary row identifying its chapter version, kind, and content digest. */
 export type ChapterSummary = typeof chapterSummaries.$inferSelect
+/** Selected fact row with its fact key and optional chapter provenance. */
 export type StoryFact = typeof storyFacts.$inferSelect
+/** Selected timeline event row with sequence and optional chapter provenance. */
 export type TimelineEvent = typeof timelineEvents.$inferSelect
+/** Selected generation request row with worker attribution and lifecycle diagnostics. */
 export type GenerationRun = typeof generationRuns.$inferSelect
+/** Selected proposal row containing generated content, review status, and publication metadata. */
 export type GenerationProposal = typeof generationProposals.$inferSelect
+/** Selected context row; legacy excerpt and source-status fields may be null. */
 export type GenerationContextItem = typeof generationContextItems.$inferSelect
+/** Selected durable generation output row used to replay an idempotent request. */
 export type GenerationResult = typeof generationResults.$inferSelect
+/** Selected attributed security event row with structured action metadata. */
 export type AuditEvent = typeof auditEvents.$inferSelect

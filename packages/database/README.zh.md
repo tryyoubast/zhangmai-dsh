@@ -13,6 +13,8 @@ kind: "package-group"
 
 ## 包
 
+[数据库子系统](../../docs/subsystems/database.zh.md)说明连接池所有权、可信请求事务以及迁移／运行时角色。
+
 | 包 | 职责 |
 |---|---|
 | [`database-postgres`](database-postgres/README.zh.md) | PostgreSQL 连接池、Drizzle Schema、迁移 SQL、角色、授权和 RLS 基础 |

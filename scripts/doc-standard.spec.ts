@@ -51,6 +51,9 @@ const KIND_TEMPLATES: Readonly<Record<string, string>> = {
  * library; the check re-derives the entry shape so a stale entry fails loud.
  */
 const PACKAGE_LIBRARIES: Readonly<Record<string, string>> = {
+  'packages/database/database-postgres': 'PostgreSQL pool, schema, and migration helpers; plain module exports without a plugin entry.',
+  'packages/identity/user-auth': 'Injected authentication services and stores; plain class/function/type exports.',
+  'packages/storage/novel-authoring': 'Workspace authoring and generation services; plain class/function/type exports.',
   'packages/boot/app-boot': 'Boot library the app bins import; plain helper exports.',
   'packages/boot/cmdline': 'Command-line library the app bins import; plain module exports.',
   'packages/client/store': 'Browser-side state primitives; plain function/type exports.',

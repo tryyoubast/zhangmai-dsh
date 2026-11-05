@@ -245,6 +245,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       'MessageImageLoader',
       'OpenFileOptions',
       'RenderMessageImages',
+      'Session',
       'TurnProcessOwnerProps',
       'TurnTailOwnerProps',
     ],
@@ -356,6 +357,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       '/** Owner values used to elect a composer takeover. */\nexport interface ComposerChainProps {\n  /** Current Session identity used by temporary business-owned entries. */\n  sessionId: SessionId | undefined\n  /** Current Session lifecycle state, absent without a selected Session. */\n  session: SessionSnapshot | undefined\n  /** Effective business-owned interaction awaiting the user in this Session. */\n  pendingInteraction: SessionPendingInteraction | undefined\n}',
     ],
     ownerPropsReferences: [
+      'Session',
       'SessionId',
       'SessionPendingInteraction',
       'SessionSnapshot',
@@ -399,9 +401,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ownerProps: [
       '/** Owner share of the resident composer bar. */\nexport interface ComposerBarOwnerProps {\n  /** Hero uses centered placement; composer uses the active bottom placement. */\n  variant: \'hero\' | \'composer\'\n  /** A feature-owned reason that makes message input inert while leaving model selection live. */\n  blocked?: { readonly reason: string }\n  /** Lock all message actions while preserving the resident composer surface. */\n  disabled?: boolean\n  /** Whether the shared Workspace picker is expanded. */\n  workspacePickerOpen?: boolean\n  /** Open the Workspace picker from the inert composer surface. */\n  onRequestWorkspace?: () => void\n  placeholder?: string\n  /** Optional content rendered above the composer surface. */\n  accessory?: ReactNode\n}',
     ],
-    ownerPropsReferences: [
-      'Workspace',
-    ],
+    ownerPropsReferences: [],
     standardProps: [
       'useResource: UseResource',
       'useWorkspaces: SnapshotSelectorHook<WorkspaceSnapshot>',
@@ -550,9 +550,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ownerProps: [
       '/** Owner share common to blank-session Workspace pickers. */\nexport interface EmptyWorkspaceOwnerProps {\n  open: boolean\n  anchorRef?: RefObject<HTMLElement>\n  /** Currently selected Workspace, when available. */\n  selectedId?: WorkspaceId | undefined\n  onPick: (workspaceId: WorkspaceId) => void\n  onClose: () => void\n}',
     ],
-    ownerPropsReferences: [
-      'Workspace',
-    ],
+    ownerPropsReferences: [],
     standardProps: [
       'useResource: UseResource',
       'useWorkspaces: SnapshotSelectorHook<WorkspaceSnapshot>',
@@ -958,6 +956,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       'Message',
       'MessageImageLoader',
       'MessageImageSource',
+      'Session',
     ],
     standardProps: [
       'useResource: UseResource',
@@ -1087,7 +1086,9 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ownerProps: [
       '/** Header actions derive their state from standard Session props. */\nexport interface ConversationHeaderActionOwnerProps {\n  /** Marker field: entries receive no owner-specific values. */\n  children?: never\n}',
     ],
-    ownerPropsReferences: [],
+    ownerPropsReferences: [
+      'Session',
+    ],
     standardProps: [
       'useResource: UseResource',
       'useWorkspaces: SnapshotSelectorHook<WorkspaceSnapshot>',
@@ -1128,7 +1129,9 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ownerProps: [
       '/** The header corner\'s occupant derives its state from standard Session props. */\nexport interface ConversationHeaderCornerOwnerProps {\n  /** Marker field: the occupant receives no owner-specific values. */\n  children?: never\n}',
     ],
-    ownerPropsReferences: [],
+    ownerPropsReferences: [
+      'Session',
+    ],
     standardProps: [
       'useResource: UseResource',
       'useWorkspaces: SnapshotSelectorHook<WorkspaceSnapshot>',
@@ -1167,6 +1170,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       '/** Plain breadcrumb data handed to the optional lineage renderer. */\nexport interface ConversationHeaderLineageOwnerProps {\n  /** Session represented by this breadcrumb title. */\n  lineageSessionId: SessionId\n  /** Display title available to a combined title/control renderer. */\n  displayTitle: string\n  /** Navigate to an ancestor title when present. */\n  openTitle?: () => void\n}',
     ],
     ownerPropsReferences: [
+      'Session',
       'SessionId',
     ],
     standardProps: [
@@ -1225,7 +1229,9 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ownerProps: [
       '/** Header actions derive their state from standard Session props. */\nexport interface ConversationHeaderActionOwnerProps {\n  /** Marker field: entries receive no owner-specific values. */\n  children?: never\n}',
     ],
-    ownerPropsReferences: [],
+    ownerPropsReferences: [
+      'Session',
+    ],
     standardProps: [
       'useResource: UseResource',
       'useWorkspaces: SnapshotSelectorHook<WorkspaceSnapshot>',
@@ -1268,6 +1274,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       'Message',
       'MessageImageLoader',
       'MessageImageSource',
+      'Session',
     ],
     standardProps: [
       'useResource: UseResource',
@@ -2332,6 +2339,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     ownerPropsReferences: [
       'DocumentTextPage',
+      'Session',
     ],
     standardProps: [
       'useResource: UseResource',
@@ -2567,6 +2575,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ownerPropsReferences: [
       'MessageImageLoader',
       'MessageImageSource',
+      'Session',
     ],
     standardProps: [
       'useResource: UseResource',
@@ -2616,6 +2625,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       'ChatNodeOwnerProps',
       'MessageImageLoader',
       'OpenFileOptions',
+      'Session',
     ],
     standardProps: [
       'useResource: UseResource',

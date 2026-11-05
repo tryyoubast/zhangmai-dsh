@@ -1,6 +1,6 @@
 ---
 description: "面向多用户认证、工作区和 AI 小说创作的 PostgreSQL 与 Drizzle 基础设施。"
-kind: "package-reference"
+kind: "package-library"
 ---
 
 # @deepseek-ai/dsh-database-postgres
@@ -11,7 +11,23 @@ kind: "package-reference"
 
 本宿主侧包负责多用户小说创作平台的 PostgreSQL 连接池、Drizzle Schema 和经过审查的 SQL 基线迁移。生产环境以 PostgreSQL 为业务真源；现有 SQLite 存储包仍独立承担 KV 或会话基础设施。
 
-## 配置
+## 目录
+
+- [使用本包](#use-this-package)
+- [实现说明](#understand-the-implementation)
+- [进一步阅读](#further-exploration)
+- [模型体验](#model-experience)
+- [当前限制](#known-limitations-and-deferred-work)
+- [开发备注](#dev-note)
+
+-----
+
+<a id="use-this-package"></a>
+## 使用本包
+
+将本库作为服务依赖导入；调用方拥有连接池及其关闭责任。
+
+### 配置
 
 应用启动必须提供 `DATABASE_URL`，并使用非超级用户登录，且该登录只能继承一个选定的 `dsh_*_runtime` 角色。本包不会静默回退到 SQLite、内存数据库或本地文件。
 
@@ -32,7 +48,13 @@ try {
 }
 ```
 
-## 数据库布局
+-----
+
+<a id="understand-the-implementation"></a>
+## 实现说明
+
+<details>
+<summary>实现细节 — 点击展开</summary>
 
 迁移日志包含十四个不可变条目。`0001_auth_workspace_novel_ai.sql` 创建认证、工作区、小说、AI 任务、提案和审计表；`0002_workspace_drafts_and_hardening.sql` 增加工作区一致性引用、Worker 仅草稿策略、生命周期保护和最小授权；`0003_remove_redundant_prefix_indexes.sql` 删除冗余前缀索引；`0004_novel_longform_context.sql` 增加大纲、章节、章节版本、摘要、事实、时间线和生成上下文选择；`0005_longform_publication_hardening.sql` 增加长篇记录生命周期字段和发布保护；`0006_publication_and_rollback.sql` 增加数据库侧发布与回滚事务；`0007_secure_rollback.sql` 将回滚限制为受控上下文中的调用者权限服务操作，并通过追加新版本保持版本号单调递增；`0008_generation_results.sql` 按幂等键持久化结构化生成结果，并限制为 Worker 草稿写入；`0009_generation_queue_payload.sql` 保存排队生成请求的指令和上下文限制，供 Worker 恢复执行；`0010_generation_queue_claim.sql` 允许绑定的 Worker 原子领取浏览器创建的排队任务；`0011_generation_claim_rls_hardening.sql` 将领取例外与已绑定 Worker 的写入条件分离，覆盖已经执行旧迁移的数据库；`0012_generation_context_snapshots.sql` 保存生成实际使用的上下文片段及来源状态，以便重放；`0013_legacy_context_rerun_marker.sql` 为不完整的旧快照标记重新生成；`0014_novel_context_fulltext_indexes.sql` 增加有界全文上下文检索使用的 GIN 表达式索引。
 
@@ -60,10 +82,38 @@ Worker 只能在绑定工作区中写草稿实体和草稿版本。审核者先�
 
 框架无关的认证路由位于 [`@deepseek-ai/dsh-user-auth`](../../identity/user-auth/README.zh.md)。本包提供这些路由使用的 PostgreSQL Store 和表，但不负责 HTTP 路由、Cookie、JWT 签发、Redis 限流或邮件发送。
 
+</details>
+
+-----
+
+<a id="further-exploration"></a>
+## 进一步阅读
+
+- [数据库子系统](../../../docs/subsystems/database.zh.md)：连接池、RLS 与迁移职责。
+
+-----
+
+<a id="model-experience"></a>
 ## 模型体验
 
-本包没有模型可见内容。它只向应用服务提供宿主侧存储，提示词、工具和 Agent Loop 行为保持不变。
+本包不直接构造模型请求；数据库连接与持久化由服务端使用，模型输入由消费方服务负责。
+
+#### KV Cache effect
+
+本包不构造或改写模型输入前缀；实际模型缓存行为由调用方及 Provider 决定。
 
 ## 当前限制
 
+<a id="known-limitations-and-deferred-work"></a>
+
 - 本包负责数据库基础设施和数据库级强制规则，不实现注册、密码哈希、HTTP 认证、Redis 限流、邮件、Web 审核或小说创作编排服务。调用方负责校验带版本的 AI JSON Schema，并设置认证后的事务上下文。如果旧生成任务无法唯一对应到一本小说，或存在目标为空的非草稿创建提案，迁移 `0002` 会中止并报告；修复这些记录后再重试。长篇记录和发布加固由迁移 `0004`、`0005` 提供，发布由 `0006` 提供，安全且保持版本递增的回滚由 `0007` 提供，生成结果的持久化幂等由 `0008` 提供，排队请求恢复由 `0009` 提供，原子领取由 `0010` 提供，既有数据库的 RLS 修复由 `0011` 提供，上下文快照重放由 `0012` 提供；确认有可恢复备份后使用受控迁移入口执行全部条目。
+
+<a id="dev-note"></a>
+### 开发备注
+
+<details>
+<summary>维护者工作上下文 — 点击展开</summary>
+
+无。
+
+</details>

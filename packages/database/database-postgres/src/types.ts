@@ -1,4 +1,6 @@
-/** Environment-backed connection settings for the PostgreSQL runtime. */
+/** Types for restricted database clients and the trusted identity used by RLS transactions. */
+
+/** PostgreSQL group roles accepted for application connection pools; migration roles are excluded. */
 export type DatabaseRuntimeRole =
   | 'dsh_auth_runtime'
   | 'dsh_app_runtime'
@@ -6,6 +8,7 @@ export type DatabaseRuntimeRole =
   | 'dsh_service_runtime'
   | 'dsh_readonly'
 
+/** Validated connection and pool settings resolved before runtime startup. */
 export interface DatabaseConfig {
   /** PostgreSQL connection URL; never included in errors or logs. */
   readonly url: string
@@ -25,10 +28,21 @@ export interface DatabaseConfig {
 export interface DatabaseClient<Database> {
   readonly db: Database
   readonly pool: {
+    /** Wait for checked-out connections to return, then close the pool. */
     end(): Promise<void>
-    /** Optional low-level connection seam used only for advisory locks. */
+    /**
+     * Check out a connection for advisory locks; the caller must release it.
+     * @returns An owned connection or a rejection when checkout fails.
+     */
     connect?: () => Promise<{
+      /**
+       * Execute SQL on this connection.
+       * @param text - SQL statement, with placeholders for supplied values.
+       * @param values - Values bound to statement placeholders.
+       * @returns The driver's query result; SQL and connection failures reject.
+       */
       query(text: string, values?: unknown[]): Promise<unknown>
+      /** Return the checked-out connection to its pool. */
       release(): void
     }>
   }

@@ -14,6 +14,12 @@ All AI idempotent writers use `INSERT ... ON CONFLICT DO NOTHING RETURNING id` w
 
 Generation runs and proposals target `(workspaceId, idempotencyKey)`. Draft tables target `(workspaceId, sourceIdempotencyKey)`; partial source-idempotency indexes include their `sourceIdempotencyKey IS NOT NULL` predicate. Context items target the existing `(generationRunId, sourceType, sourceId)` unique constraint and validate the persisted snapshot fields. Existing rows are never updated, and unrelated business-unique violations remain database errors. The advisory-locked context selection and generation-result repository are unchanged. No migration is required.
 
+## Alternatives considered
+
+**Read before inserting.** The race described above remains possible because an absent row cannot reserve its unique key for another worker.
+
+**Update the conflicting row.** `ON CONFLICT DO UPDATE` would modify an existing draft on retry, contrary to the writer's immutable retry behavior and explicit content-mismatch rejection.
+
 ## Consequences
 
 - Concurrent retries converge on one durable row without exposing a unique-key exception.

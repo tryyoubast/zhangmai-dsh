@@ -633,8 +633,16 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'host-webserver',
     title: 'HTTP route registration',
     mode: 'core',
-    consumers: ['client-connection', 'client-modules', 'client-hmr'],
+    consumers: ['client-connection', 'client-modules', 'client-hmr', 'api-novel-authoring-http'],
     note: 'Plain node:http carrier: named-route registry, index transform taps, and the static dist fallback; web-transport plugins register their own routes.',
+  },
+  {
+    key: 'platformHttpController',
+    pkg: 'api-novel-authoring-http',
+    title: 'Application authentication and authoring dispatch',
+    mode: 'core',
+    consumers: ['api-novel-authoring-http'],
+    note: 'The host supplies the controller and authenticated domain services; the HTTP plugin declares the request/response interface and mounts the bounded /api route.',
   },
   {
     key: 'clientModules',

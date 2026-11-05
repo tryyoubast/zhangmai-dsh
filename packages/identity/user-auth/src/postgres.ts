@@ -1,3 +1,4 @@
+/** Persist hashed authentication material; combined lifecycle operations own their database transactions. */
 import {
   and,
   emailVerificationTokens,
@@ -24,12 +25,20 @@ type AuthStatus = AuthUserRecord['status']
 
 type DatabaseClientType = 'web' | 'official_client'
 
-/** Map the public authentication client name to the constrained SQL value. */
+/**
+ * Map the public authentication client name to the constrained SQL value.
+ * @param clientType - Browser or official-client category accepted by the authentication API.
+ * @returns The corresponding web or official_client database value.
+ */
 export function toDatabaseClientType(clientType: 'browser' | 'official-client'): DatabaseClientType {
   return clientType === 'browser' ? 'web' : 'official_client'
 }
 
-/** Map the constrained SQL value back to the public authentication client name. */
+/**
+ * Map the constrained SQL value back to the public authentication client name.
+ * @param clientType - Persisted web or official_client category.
+ * @returns The corresponding browser or official-client API value.
+ */
 export function fromDatabaseClientType(clientType: DatabaseClientType): 'browser' | 'official-client' {
   return clientType === 'web' ? 'browser' : 'official-client'
 }
@@ -199,6 +208,11 @@ export class PostgresAuthStore implements AuthLifecycleStore, RefreshTokenStore 
     })
   }
 
+  /**
+   * Look up session metadata by its stored credential hash without checking validity.
+   * @param tokenHash - SHA-256 digest of the raw session token.
+   * @returns Session metadata or null; callers must check client type, expiry, and revocation.
+   */
   async findSessionByTokenHash(tokenHash: string): Promise<AuthHttpSession | null> {
     const [session] = await this.database.db.select({
       userId: sessions.userId,
@@ -211,6 +225,11 @@ export class PostgresAuthStore implements AuthLifecycleStore, RefreshTokenStore 
     return { ...session, clientType: fromDatabaseClientType(session.clientType as DatabaseClientType) }
   }
 
+  /**
+   * Look up session metadata for an official-client JWT without checking validity.
+   * @param sessionId - Persisted session ID from the verified sid claim.
+   * @returns Session metadata or null; callers must check user, client type, expiry, and revocation.
+   */
   async findSessionById(sessionId: string): Promise<AuthHttpSession | null> {
     const [session] = await this.database.db.select({
       userId: sessions.userId,
@@ -223,6 +242,10 @@ export class PostgresAuthStore implements AuthLifecycleStore, RefreshTokenStore 
     return { ...session, clientType: fromDatabaseClientType(session.clientType as DatabaseClientType) }
   }
 
+  /**
+   * Mark an unrevoked session revoked without deleting it or its refresh-token family.
+   * @param sessionId - Session to revoke; missing or already-revoked sessions are unchanged.
+   */
   async revokeSession(sessionId: string): Promise<void> {
     await this.database.db.update(sessions).set({ revokedAt: this.now() }).where(and(
       eq(sessions.id, sessionId),
