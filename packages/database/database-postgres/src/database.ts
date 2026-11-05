@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres'
 import { readMigrationFiles } from 'drizzle-orm/migrator'
 import { sql } from 'drizzle-orm'
-import { Pool, type PoolClient } from 'pg'
+import { Pool, type ClientBase, type PoolClient, type PoolConfig } from 'pg'
 import { assertDatabaseRuntimeRole, resolveDatabaseConfig, resolveMigrationDatabaseUrl } from './config.ts'
 import * as schema from './schema.ts'
 import type { DatabaseClient, DatabaseConfig, RequestDatabaseContext } from './types.ts'
@@ -55,12 +55,17 @@ export async function withRequestContext<T>(
     for (const [name, value] of requestContextSettings(context)) {
       await transaction.execute(sql`SELECT set_config(${name}, ${value}, true)`)
     }
-    return callback(transaction as unknown as DshDatabase)
+    return callback(transaction)
   })
 }
 
+// pg-pool awaits async onConnect hooks; @types/pg currently declares a void-only callback.
+type RolePoolConfig = Omit<PoolConfig, 'onConnect'> & {
+  onConnect: (client: ClientBase) => Promise<void>
+}
+
 function createRolePool(url: string, role: string, config?: DatabaseConfig): Pool {
-  return new Pool({
+  const options: RolePoolConfig = {
     connectionString: url,
     ...(config && {
       max: config.maxConnections,
@@ -106,7 +111,8 @@ function createRolePool(url: string, role: string, config?: DatabaseConfig): Poo
         throw new Error(`PostgreSQL connection could not assume the required ${role} role`)
       }
     },
-  })
+  }
+  return new Pool(options)
 }
 
 /**

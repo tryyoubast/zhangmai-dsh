@@ -16,7 +16,7 @@ type Argon2Function = (
   callback: (error: Error | undefined, digest?: Uint8Array) => void,
 ) => void
 
-const argon2 = (process.getBuiltinModule?.('node:crypto') as { argon2?: Argon2Function } | undefined)?.argon2
+const argon2 = (process.getBuiltinModule('node:crypto') as { argon2?: Argon2Function } | undefined)?.argon2
 
 /** Roles granted by an active workspace membership. */
 export type WorkspaceRole = 'owner' | 'admin' | 'editor' | 'member'
@@ -507,7 +507,7 @@ export async function resolveAuthPrincipal(request: AuthPrincipalResolutionReque
       const session = request.sessionResolver.findSessionById === undefined
         ? null
         : await request.sessionResolver.findSessionById(claims.sid)
-      if (session === null || session === undefined || session.userId !== claims.sub
+      if (session === null || session.userId !== claims.sub
         || session.sessionId !== claims.sid || session.clientType !== 'official-client'
         || session.revokedAt !== null || session.expiresAt <= now) return null
       return principalFromIdentity(await request.resolveIdentity(claims.sub, claims.sid), 'official-client', claims.sid)
@@ -625,7 +625,8 @@ export class AuthHttpController {
   /**
    * Dispatch an authentication route after the configured state-changing origin check.
    * @param request - Adapter-supplied method, path, headers, peer address, and optional JSON body.
-   * @returns The route response, including 403 for origin mismatch and 404 for unknown routes; asynchronous route failures can reject.
+   * @returns The route response, including 403 for origin mismatch, 404 for unknown routes,
+   * and sanitized 400 or 500 responses for route failures.
    */
   async handle(request: AuthHttpRequest): Promise<AuthHttpResponse> {
     if (this.isStateChanging(request) && this.options.allowedOrigin !== undefined
@@ -634,14 +635,14 @@ export class AuthHttpController {
     }
     try {
       switch (`${request.method.toUpperCase()} ${request.path}`) {
-        case 'POST /api/auth/register': return this.register(request)
-        case 'POST /api/auth/verify-email': return this.verifyEmail(request)
-        case 'POST /api/auth/login': return this.login(request)
-        case 'POST /api/auth/logout': return this.logout(request)
-        case 'POST /api/auth/refresh': return this.refresh(request)
-        case 'POST /api/auth/forgot-password': return this.forgotPassword(request)
-        case 'POST /api/auth/reset-password': return this.resetPassword(request)
-        case 'GET /api/auth/me': return this.me(request)
+        case 'POST /api/auth/register': return await this.register(request)
+        case 'POST /api/auth/verify-email': return await this.verifyEmail(request)
+        case 'POST /api/auth/login': return await this.login(request)
+        case 'POST /api/auth/logout': return await this.logout(request)
+        case 'POST /api/auth/refresh': return await this.refresh(request)
+        case 'POST /api/auth/forgot-password': return await this.forgotPassword(request)
+        case 'POST /api/auth/reset-password': return await this.resetPassword(request)
+        case 'GET /api/auth/me': return await this.me(request)
         default: return jsonResponse(404, { error: 'not_found' })
       }
     } catch (error) {
@@ -729,7 +730,7 @@ export class AuthHttpController {
     }
 
     const cookie = cookieValue(request.headers.cookie, '__Host-dsh_session')
-    if (cookie === null || resolver.findSessionByTokenHash === undefined) return null
+    if (cookie === null) return null
     const session = await resolver.findSessionByTokenHash(hashToken(cookie))
     if (session === null || session.clientType !== 'browser' || session.revokedAt !== null || session.expiresAt <= this.now()) {
       return null
@@ -740,11 +741,11 @@ export class AuthHttpController {
   private async refresh(request: AuthHttpRequest): Promise<AuthHttpResponse> {
     const token = stringField(requestBody(request), 'refreshToken') ?? bearerValue(request.headers.authorization)
     if (token === null) return jsonResponse(401, { error: 'invalid_refresh_token' })
-    const findSessionById = this.options.sessionResolver?.findSessionById
-    if (findSessionById === undefined) return jsonResponse(401, { error: 'invalid_refresh_token' })
+    const resolver = this.options.sessionResolver
+    if (resolver?.findSessionById === undefined) return jsonResponse(401, { error: 'invalid_refresh_token' })
     const rotated = await this.refreshTokens.rotate(token)
     if (rotated === null) return jsonResponse(401, { error: 'invalid_refresh_token' })
-    const session = await findSessionById(rotated.sessionId)
+    const session = await resolver.findSessionById(rotated.sessionId)
     if (session === null || session.userId !== rotated.userId || session.clientType !== 'official-client'
       || session.revokedAt !== null || session.expiresAt <= this.now()) {
       await this.refreshTokens.revokeFamily(rotated.familyId)
@@ -782,7 +783,7 @@ export class AuthHttpController {
     const session = await this.sessionFromRequest(request)
     if (session === null) return jsonResponse(401, { error: 'unauthorized' })
     const identity = await this.resolveIdentity(session.userId, session.sessionId)
-    return identity === null ? jsonResponse(401, { error: 'unauthorized' }) : jsonResponse(200, {
+    return jsonResponse(200, {
       userId: identity.userId,
       sessionId: session.sessionId,
       clientType: session.clientType,
@@ -1056,12 +1057,16 @@ function base64Url(value: string | Uint8Array): string {
   return Buffer.from(value).toString('base64url')
 }
 
-function parseJson<T>(value: string): T {
+function parseJson(value: string): unknown {
   try {
-    return JSON.parse(value) as T
+    return JSON.parse(value) as unknown
   } catch {
     throw new AccessTokenInvalidError()
   }
+}
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
 /**
@@ -1125,8 +1130,8 @@ export function verifyAccessToken(
   if (encodedHeader === undefined || encodedPayload === undefined || encodedSignature === undefined) {
     throw new AccessTokenInvalidError()
   }
-  const header = parseJson<{ alg?: string; typ?: string }>(Buffer.from(encodedHeader, 'base64url').toString('utf8'))
-  if (header.alg !== 'EdDSA' || header.typ !== 'JWT') throw new AccessTokenInvalidError()
+  const header = parseJson(Buffer.from(encodedHeader, 'base64url').toString('utf8'))
+  if (!isJsonObject(header) || header.alg !== 'EdDSA' || header.typ !== 'JWT') throw new AccessTokenInvalidError()
   const validSignature = verify(
     null,
     Buffer.from(`${encodedHeader}.${encodedPayload}`, 'ascii'),
@@ -1134,16 +1139,25 @@ export function verifyAccessToken(
     Buffer.from(encodedSignature, 'base64url'),
   )
   if (!validSignature) throw new AccessTokenInvalidError()
-  const claims = parseJson<Partial<AccessTokenClaims>>(Buffer.from(encodedPayload, 'base64url').toString('utf8'))
+  const claims = parseJson(Buffer.from(encodedPayload, 'base64url').toString('utf8'))
   const nowSeconds = Math.floor((options.now ?? Date.now()) / 1000)
-  if (claims.iss !== options.issuer || claims.aud !== options.audience
+  if (!isJsonObject(claims) || typeof claims.iss !== 'string' || typeof claims.aud !== 'string'
+    || claims.iss !== options.issuer || claims.aud !== options.audience
     || typeof claims.sub !== 'string' || typeof claims.sid !== 'string'
     || typeof claims.jti !== 'string' || typeof claims.iat !== 'number' || typeof claims.exp !== 'number'
-    || !Array.isArray(claims.scope) || claims.scope.some(scope => typeof scope !== 'string')
+    || !Array.isArray(claims.scope)
     || claims.iat > nowSeconds + 30 || claims.exp <= nowSeconds || claims.exp - claims.iat > 900) {
     throw new AccessTokenInvalidError()
   }
-  return claims as AccessTokenClaims
+  const scopeValues: unknown[] = claims.scope
+  const scope = scopeValues.map((value) => {
+    if (typeof value !== 'string') throw new AccessTokenInvalidError()
+    return value
+  })
+  return {
+    iss: claims.iss, aud: claims.aud, sub: claims.sub, sid: claims.sid,
+    jti: claims.jti, iat: claims.iat, exp: claims.exp, scope,
+  }
 }
 
 function cryptoRandomUuid(): string {

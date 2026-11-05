@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { NovelAuthoringHttpController, PlatformHttpController } from '../src/index.ts'
+import { describe, expect, it, vi } from 'vitest'
+import { NovelAuthoringHttpController, PlatformHttpController, type NovelAuthoringHttpServices } from '../src/index.ts'
 import type { AuthPrincipal } from '@deepseek-ai/dsh-user-auth'
 
 const principal: AuthPrincipal = {
@@ -7,7 +7,45 @@ const principal: AuthPrincipal = {
 }
 const workerPrincipal: AuthPrincipal = { ...principal, actorType: 'agent', agentPrincipalId: 'agent-1' }
 
+function proposalServices(createDraftProposal: NovelAuthoringHttpServices['authoring']['createDraftProposal']): NovelAuthoringHttpServices {
+  return {
+    workspace: { createWorkspace: async () => 'w', listWorkspaces: async () => [], createNovel: async () => 'n' },
+    authoring: { createGenerationRun: async () => 'r', createDraftProposal },
+    longform: { listContextItems: async () => [] },
+    review: { review: async () => undefined, bindTarget: async () => undefined },
+    publication: { publish: async () => undefined, rollback: async () => undefined },
+  }
+}
+
+const proposalBody = { workspaceId: 'workspace-1', generationRunId: 'run-1', idempotencyKey: 'proposal-1', operation: 'create' }
+
 describe('NovelAuthoringHttpController', () => {
+  it.each([undefined, null, '', ' ', 'unsupported', 'constructor', 'toString', '__proto__', 42, {}])('rejects proposal target %j before calling authoring', async (targetType) => {
+    const createDraftProposal = vi.fn(async () => 'proposal-1')
+    const controller = new NovelAuthoringHttpController(workerPrincipal, proposalServices(createDraftProposal))
+    const response = await controller.handle({ method: 'POST', path: '/api/novels/n1/proposals', body: { ...proposalBody, targetType } })
+    expect(response.status).toBe(400)
+    expect(response.body).toBe('{"error":"invalid_request"}')
+    expect(createDraftProposal).not.toHaveBeenCalled()
+  })
+
+  it.each(['outlines', 'characters', 'skills', 'locations', 'factions', 'items', 'storylines', 'entity_relations', 'character_skills', 'chapters', 'chapter_versions', 'chapter_summaries', 'story_facts', 'timeline_events'])('accepts the fixed proposal target %s for a worker', async (targetType) => {
+    const createDraftProposal = vi.fn(async () => 'proposal-1')
+    const controller = new NovelAuthoringHttpController(workerPrincipal, proposalServices(createDraftProposal))
+    const response = await controller.handle({ method: 'POST', path: '/api/novels/n1/proposals', body: { ...proposalBody, targetType } })
+    expect(response.status).toBe(200)
+    expect(response.body).toBe('{"ok":true,"id":"proposal-1"}')
+    expect(createDraftProposal).toHaveBeenCalledWith(expect.objectContaining({ targetType, workspaceId: 'workspace-1' }))
+  })
+
+  it('keeps proposal creation restricted to workers', async () => {
+    const createDraftProposal = vi.fn(async () => 'proposal-1')
+    const controller = new NovelAuthoringHttpController(principal, proposalServices(createDraftProposal))
+    const response = await controller.handle({ method: 'POST', path: '/api/novels/n1/proposals', body: { ...proposalBody, targetType: 'characters' } })
+    expect(response.status).toBe(404)
+    expect(createDraftProposal).not.toHaveBeenCalled()
+  })
+
   it('routes authentication and authoring through one host boundary', async () => {
     const calls: string[] = []
     const platform = new PlatformHttpController({

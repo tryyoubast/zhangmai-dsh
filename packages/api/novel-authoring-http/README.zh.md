@@ -57,6 +57,8 @@ kind: "package-reference"
 
 [实现代码](src/index.ts)负责分发与响应映射；[Web 适配器测试](tests/web-adapter.spec.ts)验证有界请求处理，[控制器测试](tests/controller.spec.ts)验证基于身份的分发。
 
+Worker 提案请求必须提供受支持的固定 `targetType`。目标类型缺失、为空或不受支持时，控制器使用创作库共享的类型守卫，在调用创作服务前返回 `400 invalid_request`。
+
 </details>
 
 -----

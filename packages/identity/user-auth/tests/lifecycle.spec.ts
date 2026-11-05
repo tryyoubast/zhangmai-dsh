@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { generateKeyPairSync } from 'node:crypto'
+import { generateKeyPairSync, sign } from 'node:crypto'
 import {
+  AccessTokenInvalidError,
   createAccessToken,
   AuthSecurityControls,
   UserAuthService,
@@ -186,5 +187,62 @@ describe('authentication lifecycle', () => {
     expect(second.token).not.toBe(first.token)
     await expect(service.rotate(first.token)).resolves.toBeNull()
     expect(store.revokedFamilies).toContain(first.familyId)
+  })
+})
+
+describe('signed access-token JSON validation', () => {
+  const { privateKey, publicKey } = generateKeyPairSync('ed25519')
+  const header = { alg: 'EdDSA', typ: 'JWT' }
+  const claims = {
+    iss: 'dsh', aud: 'dsh-client', sub: 'user-1', sid: 'session-1', jti: 'token-1',
+    iat: 1_700_000_000, exp: 1_700_000_600, scope: ['novel:read'],
+  }
+  const options = { publicKey, issuer: 'dsh', audience: 'dsh-client', now: 1_700_000_100_000 }
+
+  function signedJson(headerJson: string, claimsJson: string): string {
+    const input = `${Buffer.from(headerJson).toString('base64url')}.${Buffer.from(claimsJson).toString('base64url')}`
+    return `${input}.${sign(null, Buffer.from(input, 'ascii'), privateKey).toString('base64url')}`
+  }
+
+  describe.each(['header', 'payload'] as const)('%s', (part) => {
+    it.each(['{', 'null', '[]', '"text"', '7', 'true', '{}'])('rejects signed JSON %s with AccessTokenInvalidError', (json) => {
+      const token = signedJson(part === 'header' ? json : JSON.stringify(header), part === 'payload' ? json : JSON.stringify(claims))
+      expect(() => verifyAccessToken(token, options)).toThrow(AccessTokenInvalidError)
+    })
+  })
+
+  it.each([
+    { field: 'alg', value: 'HS256' },
+    { field: 'alg', value: 1 },
+    { field: 'typ', value: 'other' },
+    { field: 'typ', value: null },
+  ])('rejects signed header field $field=$value', ({ field, value }) => {
+    const token = signedJson(JSON.stringify({ ...header, [field]: value }), JSON.stringify(claims))
+    expect(() => verifyAccessToken(token, options)).toThrow(AccessTokenInvalidError)
+  })
+
+  it.each([
+    { field: 'iss', value: 1 },
+    { field: 'aud', value: ['dsh-client'] },
+    { field: 'sub', value: null },
+    { field: 'sid', value: false },
+    { field: 'jti', value: 1 },
+    { field: 'iat', value: '1700000000' },
+    { field: 'exp', value: '1700000600' },
+    { field: 'scope', value: 'novel:read' },
+    { field: 'scope', value: [1] },
+  ])('rejects signed claim field $field=$value', ({ field, value }) => {
+    const token = signedJson(JSON.stringify(header), JSON.stringify({ ...claims, [field]: value }))
+    expect(() => verifyAccessToken(token, options)).toThrow(AccessTokenInvalidError)
+  })
+
+  it.each(Object.keys(claims))('rejects a signed payload without %s', (field) => {
+    const incomplete = Object.fromEntries(Object.entries(claims).filter(([key]) => key !== field))
+    const token = signedJson(JSON.stringify(header), JSON.stringify(incomplete))
+    expect(() => verifyAccessToken(token, options)).toThrow(AccessTokenInvalidError)
+  })
+
+  it('preserves valid signed claims after JSON validation', () => {
+    expect(verifyAccessToken(signedJson(JSON.stringify(header), JSON.stringify(claims)), options)).toEqual(claims)
   })
 })

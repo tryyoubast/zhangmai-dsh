@@ -1,11 +1,17 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { generateKeyPairSync } from 'node:crypto'
 import {
   AuthHttpController,
   AuthSecurityControls,
   RefreshTokenService,
   UserAuthService,
   createAccessToken,
+  hashToken,
   resolveAuthPrincipal,
+  verifyAccessToken,
+  type AuthHttpRequest,
+  type AuthHttpSession,
+  type AuthHttpSessionResolver,
   type AuthLifecycleStore,
   type AuthUserRecord,
   type RefreshTokenRecord,
@@ -106,6 +112,106 @@ function body(response: { body: string }): Record<string, unknown> {
 }
 
 describe('authentication HTTP controller', () => {
+  describe.each([
+    { route: 'register', method: 'POST', operation: 'register', body: { email: 'writer@example.com', password: 'a sufficiently long password' } },
+    { route: 'verify-email', method: 'POST', operation: 'verifyEmail', body: { token: 'verification-token' } },
+    { route: 'login', method: 'POST', operation: 'login', body: { email: 'writer@example.com', password: 'a sufficiently long password' } },
+    { route: 'forgot-password', method: 'POST', operation: 'issuePasswordReset', body: { email: 'writer@example.com' } },
+    { route: 'reset-password', method: 'POST', operation: 'resetPassword', body: { token: 'reset-token', password: 'a sufficiently long password' } },
+    { route: 'logout', method: 'POST', operation: 'revokeSession', body: {} },
+    { route: 'refresh', method: 'POST', operation: 'rotate', body: { refreshToken: 'refresh-token' } },
+    { route: 'me', method: 'GET', operation: 'resolveIdentity', body: {} },
+  ] as const)('$route asynchronous failures', ({ route, method, operation, body: requestBody }) => {
+    it.each([
+      { message: 'password validation secret detail', status: 400, error: 'invalid_request' },
+      { message: 'email address validation secret detail', status: 400, error: 'invalid_request' },
+      { message: 'origin validation secret detail', status: 400, error: 'invalid_request' },
+      { message: 'backend connection secret detail', status: 500, error: 'authentication_unavailable' },
+    ])('returns $status without leaking $message', async ({ message, status, error }) => {
+      const store = new HttpStore()
+      const auth = new UserAuthService(store)
+      const refreshTokens = new RefreshTokenService(store)
+      const failure = new Error(message)
+      const session: AuthHttpSession = {
+        userId: 'user-1', sessionId: 'session-1', clientType: 'browser',
+        expiresAt: new Date('2099-01-01T00:00:00Z'), revokedAt: null,
+      }
+      const sessionResolver: AuthHttpSessionResolver = {
+        findSessionByTokenHash: async tokenHash => tokenHash === hashToken('session-token') ? session : null,
+        findSessionById: async () => ({ ...session, clientType: 'official-client' }),
+        revokeSession: async () => undefined,
+      }
+      const options = {
+        sessionResolver,
+        resolveIdentity: async (userId: string) => ({ userId, workspaceId: 'workspace-1', roles: ['owner'] as const }),
+      }
+      if (operation === 'rotate') vi.spyOn(refreshTokens, operation).mockRejectedValue(failure)
+      else if (operation === 'revokeSession') vi.spyOn(sessionResolver, operation).mockRejectedValue(failure)
+      else if (operation === 'resolveIdentity') vi.spyOn(options, operation).mockRejectedValue(failure)
+      else vi.spyOn(auth, operation).mockRejectedValue(failure)
+      const controller = new AuthHttpController(auth, refreshTokens, options)
+      const request: AuthHttpRequest = {
+        method, path: `/api/auth/${route}`, headers: { cookie: '__Host-dsh_session=session-token' }, body: requestBody,
+      }
+      const unhandled: unknown[] = []
+      const onUnhandled = (reason: unknown): void => { unhandled.push(reason) }
+      process.on('unhandledRejection', onUnhandled)
+      try {
+        await expect(controller.handle(request)).resolves.toEqual({
+          status,
+          headers: { 'content-type': 'application/json; charset=utf-8' },
+          body: JSON.stringify({ error }),
+        })
+        await new Promise<void>((resolve) => { setImmediate(resolve) })
+        expect(unhandled).toEqual([])
+      } finally {
+        process.off('unhandledRejection', onUnhandled)
+      }
+    })
+  })
+
+  it('refreshes an official-client session through an instance-backed session resolver', async () => {
+    class SessionResolver implements AuthHttpSessionResolver {
+      readonly sessions = new Map<string, AuthHttpSession>([['session-1', {
+        userId: 'user-1', sessionId: 'session-1', clientType: 'official-client',
+        expiresAt: new Date('2099-01-01T00:00:00Z'), revokedAt: null,
+      }]])
+
+      findSessionById(sessionId: string): Promise<AuthHttpSession | null> {
+        return Promise.resolve(this.sessions.get(sessionId) ?? null)
+      }
+      findSessionByTokenHash(): Promise<null> { return Promise.resolve(null) }
+      revokeSession(sessionId: string): Promise<void> {
+        this.sessions.delete(sessionId)
+        return Promise.resolve()
+      }
+    }
+    const { privateKey, publicKey } = generateKeyPairSync('ed25519')
+    const now = new Date()
+    const store = new HttpStore()
+    const refreshTokens = new RefreshTokenService(store, () => now)
+    const issued = await refreshTokens.issue('user-1', 'session-1')
+    const controller = new AuthHttpController(new UserAuthService(store), refreshTokens, {
+      now: () => now,
+      accessToken: { privateKey, publicKey, issuer: 'dsh', audience: 'dsh-api' },
+      sessionResolver: new SessionResolver(),
+      resolveIdentity: async userId => ({ userId, workspaceId: 'workspace-1', roles: ['owner'] }),
+    })
+
+    const response = await controller.handle({
+      method: 'POST', path: '/api/auth/refresh', headers: {}, body: { refreshToken: issued.token },
+    })
+
+    expect(response.status).toBe(200)
+    const result = body(response)
+    expect(result.tokenType).toBe('Bearer')
+    expect(result.refreshToken).not.toBe(issued.token)
+    if (typeof result.accessToken !== 'string' || typeof result.refreshToken !== 'string') throw new Error('credentials missing')
+    expect(verifyAccessToken(result.accessToken, { publicKey, issuer: 'dsh', audience: 'dsh-api', now: now.getTime() }))
+      .toMatchObject({ sub: 'user-1', sid: 'session-1' })
+    expect(await store.findByHash(hashToken(result.refreshToken))).toMatchObject({ userId: 'user-1', sessionId: 'session-1' })
+  })
+
   it('resolves a browser principal from a hashed __Host session cookie', async () => {
     const store = new HttpStore()
     const auth = new UserAuthService(store)

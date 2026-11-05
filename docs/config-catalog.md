@@ -213,7 +213,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/api/novel-authoring-http/src/index.ts:35`](../packages/api/novel-authoring-http/src/index.ts)
+Source: [`packages/api/novel-authoring-http/src/index.ts:36`](../packages/api/novel-authoring-http/src/index.ts)
 
 <a id="deepseek-aidsh-api-session-controller"></a>
 

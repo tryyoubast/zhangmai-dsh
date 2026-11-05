@@ -56,6 +56,8 @@ kind: "package-library"
 
 邮箱验证是一个必需的存储操作：底层 Store 必须在原子事务中消费未过期且未使用的令牌，并激活对应用户。
 
+`AuthHttpController.handle()` 在错误处理范围内等待路由操作。符合现有分类的凭据校验错误返回 `400 invalid_request`；其他失败返回 `500 authentication_unavailable`，不包含原始错误详情。会话解析器可以依赖实例状态：控制器通过解析器对象调用其方法。JWT 解析先校验解码对象及字段，再返回声明。
+
 </details>
 
 -----

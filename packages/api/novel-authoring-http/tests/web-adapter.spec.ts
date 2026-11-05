@@ -39,7 +39,7 @@ function responseOf(): { response: ServerResponse; captured: CapturedResponse } 
   const response = {
     statusCode: 200,
     setHeader(name: string, value: string | number | readonly string[]): void {
-      captured.headers.set(name.toLowerCase(), Array.isArray(value) ? [...value] : String(value))
+      captured.headers.set(name.toLowerCase(), typeof value === 'string' || typeof value === 'number' ? String(value) : [...value])
     },
     end(body?: string | Buffer): void {
       captured.statusCode = response.statusCode

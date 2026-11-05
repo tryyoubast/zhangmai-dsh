@@ -76,6 +76,8 @@ pnpm --filter @deepseek-ai/dsh-database-postgres db:migrate
 
 运行时角色不具备 Schema `CREATE`、`CREATEDB`、`CREATEROLE`、`SUPERUSER` 或 `BYPASSRLS` 能力。可信后端在事务内完成认证后，使用事务级局部设置写入 `app.user_id`、`app.workspace_id`、`app.actor_type` 和 `app.agent_principal_id`。这个可信服务端事务上下文使用 PostgreSQL GUC；它不能防御运行时数据库凭据泄露或任意 SQL 执行。不得把凭据或 SQL 访问暴露给模型生成的 SQL。
 
+连接池等待每个连接完成异步角色校验和 `SET ROLE` 初始化后，才将其借给调用方。初始化失败会拒绝获取连接并关闭该连接。Drizzle 的额外配置回调返回数组条目；版本化 SQL 迁移仍是数据库结构的权威来源。
+
 Worker 只能在绑定工作区中写草稿实体和草稿版本。审核者先分别保存提案与版本草稿，再执行审核。发布服务在一个事务内更新同一草稿版本行、更新实体当前版本并将提案标记为已发布。数据库触发器核对提案与版本内容，并为审核和生成任务状态变化追加审计事件，不复制提示词或原始错误文本。工作区所有者只能通过 `app.transfer_workspace_owner(workspace_id, new_owner_user_id)` 转移。
 
 `ai.publish_generation_proposal(workspace_id, proposal_id)` 只有 `dsh_service_runtime` 和可信用户事务上下文可以执行。它会锁定提案和目标，检查审核状态、目标状态和乐观并发版本，发布目标并追加审计事件。`ai.rollback_entity_version(workspace_id, target_type, target_id, version_no)` 恢复支持的历史实体版本并追加回滚审计事件；两个函数都撤销了 `PUBLIC` 的执行权限。

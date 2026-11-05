@@ -11,7 +11,9 @@ describe('DeepSeekNovelGenerationAdapter', () => {
   it('sends bounded context and parses structured JSON without exposing the key', async () => {
     const fetcher = vi.fn(async (_input: unknown, init?: RequestInit) => {
       expect(init?.headers).toMatchObject({ authorization: 'Bearer secret-key' })
-      const body = JSON.parse(String(init?.body)) as { messages: Array<{ content: string }> }
+      const requestBody = init?.body
+      if (typeof requestBody !== 'string') throw new Error('provider request body must be a string')
+      const body = JSON.parse(requestBody) as { messages: Array<{ content: string }> }
       expect(body.messages[1]?.content).toContain('continue the chapter')
       expect(body.messages[1]?.content).toContain('summary-1')
       return new Response(JSON.stringify({
@@ -35,6 +37,18 @@ describe('DeepSeekNovelGenerationAdapter', () => {
     })
     await expect(failure).rejects.toThrow('DeepSeek generation request failed with HTTP 500')
     await expect(failure).rejects.not.toThrow('secret-key')
+  })
+
+  it.each([null, [], 42, 'draft'])('rejects an entire mixed provider array containing %j', async (invalid) => {
+    for (const array of ['records', 'proposals'] as const) {
+      const fetcher = vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({
+        [array]: [{ targetType: 'characters', name: 'Lin' }, invalid],
+      }) } }] }), { status: 200 }))
+      const adapter = new DeepSeekNovelGenerationAdapter({ apiKey: 'secret-key', fetch: fetcher })
+      await expect(adapter.generate({
+        workspaceId: 'w1', novelId: 'n1', generationRunId: 'run-1', idempotencyKey: 'idem-1', instruction: 'write', context: [],
+      })).rejects.toThrow(`DeepSeek generation ${array} must be an array of objects`)
+    }
   })
 })
 
@@ -82,12 +96,13 @@ describe('GenerationMaterializationService', () => {
   })
 
   it('rejects unsupported update records instead of silently bypassing review', async () => {
-    const writer = { createDraftProposal: vi.fn() } as unknown as DraftRecordWriter
+    const createDraftProposal = vi.fn()
+    const writer = { createDraftProposal } as unknown as DraftRecordWriter
     await expect(new GenerationMaterializationService(writer).materialize({
       generationRunId: 'run-1', workspaceId: 'w1', novelId: 'n1', idempotencyKey: 'generation-1', selectedContext: [],
       records: [{ targetType: 'characters', operation: 'update', targetId: 'character-1', name: 'Lin' }], proposals: [],
     })).rejects.toThrow('only create and link records are supported')
-    expect(writer.createDraftProposal).not.toHaveBeenCalled()
+    expect(createDraftProposal).not.toHaveBeenCalled()
   })
 
   it('canonicalizes relation and provenance fields to the values written by draft writers', async () => {

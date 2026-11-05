@@ -151,7 +151,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function validateDraftTree(value: unknown, path: string): void {
   if (Array.isArray(value)) {
-    value.forEach((item, index) => validateDraftTree(item, `${path}[${index}]`))
+    value.forEach((item, index) => { validateDraftTree(item, `${path}[${index}]`) })
     return
   }
   if (!isRecord(value)) return
@@ -221,7 +221,7 @@ function contextFromPersisted(
       sourceId: item.sourceId,
       workspaceId: item.workspaceId,
       novelId: item.novelId,
-      status: item.sourceStatus as ContextCandidate['status'],
+      status: item.sourceStatus,
       relevanceScore: 0,
       recencyScore: 0,
       excerptHash: item.excerptHash,
@@ -398,12 +398,12 @@ export class LongformGenerationService {
       })
     }
     LongformGenerationService.sharedInFlightInputs.set(key, { generationRunId: input.generationRunId })
-    const durableLock = this.dependencies.resultRepository.withIdempotencyLock
+    const repository = this.dependencies.resultRepository
     let task: Promise<DraftGenerationResult>
     try {
-      task = durableLock === undefined
+      task = repository.withIdempotencyLock === undefined
         ? work()
-        : durableLock.call(this.dependencies.resultRepository, lookup, work) as Promise<DraftGenerationResult>
+        : repository.withIdempotencyLock(lookup, work)
     } catch (error) {
       LongformGenerationService.sharedInFlightInputs.delete(key)
       throw error

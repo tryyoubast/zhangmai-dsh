@@ -97,7 +97,7 @@ export function resolveDatabaseConfig(environment: NodeJS.ProcessEnv = process.e
       DEFAULT_DATABASE_POOL.connectionTimeoutMs,
     ),
     applicationName,
-    runtimeRole: configuredRole as DatabaseRuntimeRole,
+    runtimeRole: configuredRole,
   }
 }
 

@@ -41,8 +41,8 @@ export class PostgresGenerationResultRepository implements GenerationResultRepos
       novelId: row.novelId,
       idempotencyKey: row.idempotencyKey,
       selectedContext: row.selectedContext as unknown as DraftGenerationResult['selectedContext'],
-      records: row.records as DraftGenerationResult['records'],
-      proposals: row.proposals as DraftGenerationResult['proposals'],
+      records: row.records,
+      proposals: row.proposals,
     }
   }
 
@@ -67,9 +67,9 @@ export class PostgresGenerationResultRepository implements GenerationResultRepos
 
   async withIdempotencyLock<T>(input: GenerationResultLookup, callback: () => Promise<T>): Promise<T> {
     this.assertScope(input.workspaceId, input.novelId)
-    const connect = this.database.pool.connect
-    if (connect === undefined) return callback()
-    const client = await connect()
+    const pool = this.database.pool
+    if (pool.connect === undefined) return callback()
+    const client = await pool.connect()
     const key = `${input.workspaceId}:${input.novelId}:${input.idempotencyKey}`
     try {
       await client.query('BEGIN')

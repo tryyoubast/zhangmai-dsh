@@ -57,6 +57,8 @@ Workspace and novel creation, member invitations/listing/role changes/revocation
 
 The [implementation](src/index.ts) owns dispatch and response mapping; [Web adapter tests](tests/web-adapter.spec.ts) exercise bounded request handling, and [controller tests](tests/controller.spec.ts) exercise principal-based dispatch.
 
+Worker proposal requests require a supported fixed `targetType`. Missing, empty, or unsupported values return `400 invalid_request` before the authoring service is called, using the authoring library's shared type guard.
+
 </details>
 
 -----

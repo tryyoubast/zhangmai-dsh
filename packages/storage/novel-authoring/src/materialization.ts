@@ -13,6 +13,7 @@ import type {
   StoryFactDraftInput,
   TimelineEventDraftInput,
 } from './index.ts'
+import { isNovelDraftTargetType } from './target-type.ts'
 
 /** Minimum domain writer surface used to materialize validated model output. */
 export interface DraftRecordWriter {
@@ -34,10 +35,10 @@ export interface DraftRecordWriter {
 }
 
 interface GeneratedRecord extends Record<string, unknown> {
-  targetType?: NovelDraftTargetType
-  type?: NovelDraftTargetType
-  operation?: 'create' | 'update' | 'link'
-  clientKey?: string
+  targetType?: unknown
+  type?: unknown
+  operation?: unknown
+  clientKey?: unknown
 }
 
 /** Target and review proposal IDs produced for one generated record or proposed update. */
@@ -54,6 +55,10 @@ export interface MaterializationResult {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function assertNever(_value: never): never {
+  throw new Error('unsupported generated target type')
 }
 
 function text(record: Record<string, unknown>, name: string): string
@@ -201,13 +206,13 @@ function canonicalProposalContent(
         source_chapter_id: aliasText(record, 'source_chapter_id', 'sourceChapterId'),
         source_chapter_version_id: aliasText(record, 'source_chapter_version_id', 'sourceChapterVersionId'),
       }
-    default: throw new Error(`unsupported generated target type: ${type}`)
+    default: return assertNever(type)
   }
 }
 
 function rejectUnsafeTree(value: unknown, path: string): void {
   if (Array.isArray(value)) {
-    value.forEach((item, index) => rejectUnsafeTree(item, `${path}[${index}]`))
+    value.forEach((item, index) => { rejectUnsafeTree(item, `${path}[${index}]`) })
     return
   }
   if (!isRecord(value)) return
@@ -224,7 +229,8 @@ function rejectUnsafeTree(value: unknown, path: string): void {
 function targetType(record: GeneratedRecord): NovelDraftTargetType {
   const value = record.targetType ?? record.type
   if (typeof value !== 'string') throw new Error('generated record targetType is required')
-  return value as NovelDraftTargetType
+  if (!isNovelDraftTargetType(value)) throw new Error('unsupported generated target type')
+  return value
 }
 
 function operation(record: GeneratedRecord): 'create' | 'update' | 'link' {
@@ -280,7 +286,7 @@ export class GenerationMaterializationService {
     const materialized: MaterializedDraftRecord[] = []
     for (const [index, raw] of result.records.entries()) {
       if (!isRecord(raw)) throw new Error('generated records must contain objects')
-      const record = raw as GeneratedRecord
+      const record: GeneratedRecord = raw
       rejectUnsafeTree(record, `records[${index}]`)
       const type = targetType(record)
       const action = operation(record)
@@ -301,7 +307,7 @@ export class GenerationMaterializationService {
     }
     for (const [index, raw] of result.proposals.entries()) {
       if (!isRecord(raw)) throw new Error('generated proposals must contain objects')
-      const proposal = raw as GeneratedRecord
+      const proposal: GeneratedRecord = raw
       rejectUnsafeTree(proposal, `proposals[${index}]`)
       const type = targetType(proposal)
       const targetId = aliasText(proposal, 'targetId', 'target_id') ?? text(proposal, 'targetId')
@@ -414,7 +420,7 @@ export class GenerationMaterializationService {
       case 'character_skills': {
         const characterId = resolvedId(record, ['characterId', 'character_id'], ['characterRef', 'character_ref'], references)
         const skillId = resolvedId(record, ['skillId', 'skill_id'], ['skillRef', 'skill_ref'], references)
-        targetId = await this.writer.createCharacterSkillDraft({ ...base, characterId, skillId, relationType: aliasText(record, 'relation_type', 'relationType') ?? text(record, 'relationType'), ...Object.fromEntries(Object.entries({ sourceVersionNo: aliasInteger(record, 'source_version_no', 'sourceVersionNo'), attributes: aliasObject(record, 'attributes', 'attributes_jsonb') }).filter(([, value]) => value !== undefined)) })
+        targetId = await this.writer.createCharacterSkillDraft({ ...base, characterId, skillId, relationType: aliasText(record, 'relation_type', 'relationType') ?? text(record, 'relationType'), ...Object.fromEntries(Object.entries({ sourceVersionNo: aliasInteger(record, 'source_version_no', 'sourceVersionNo'), attributes: aliasObject(record, 'attributes', 'attributes_jsonb') })) })
         break
       }
       case 'entity_relations': {
@@ -422,12 +428,12 @@ export class GenerationMaterializationService {
           ...base,
           sourceEntityType: aliasText(record, 'source_entity_type', 'sourceEntityType') ?? text(record, 'sourceEntityType'), sourceEntityId: resolvedId(record, ['sourceEntityId', 'source_entity_id'], ['sourceEntityRef', 'source_entity_ref'], references),
           targetEntityType: aliasText(record, 'target_entity_type', 'targetEntityType') ?? text(record, 'targetEntityType'), targetEntityId: resolvedId(record, ['targetEntityId', 'target_entity_id'], ['targetEntityRef', 'target_entity_ref'], references),
-          relationType: aliasText(record, 'relation_type', 'relationType') ?? text(record, 'relationType'), ...Object.fromEntries(Object.entries({ strength: aliasInteger(record, 'strength'), sourceVersionNo: aliasInteger(record, 'source_version_no', 'sourceVersionNo'), attributes: aliasObject(record, 'attributes', 'attributes_jsonb') }).filter(([, value]) => value !== undefined)),
+          relationType: aliasText(record, 'relation_type', 'relationType') ?? text(record, 'relationType'), ...Object.fromEntries(Object.entries({ strength: aliasInteger(record, 'strength'), sourceVersionNo: aliasInteger(record, 'source_version_no', 'sourceVersionNo'), attributes: aliasObject(record, 'attributes', 'attributes_jsonb') })),
         }
         targetId = await this.writer.createEntityRelationDraft(input)
         break
       }
-      default: throw new Error(`unsupported generated target type: ${type}`)
+      default: assertNever(type)
     }
     const clientKey = record.clientKey
     if (typeof clientKey === 'string' && clientKey.trim() !== '') references.set(clientKey, targetId)

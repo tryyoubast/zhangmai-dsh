@@ -2,6 +2,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
+import { isNovelDraftTargetType } from '@deepseek-ai/dsh-novel-authoring'
 import type {
   AuthHttpRequest,
   AuthHttpResponse,
@@ -134,8 +135,8 @@ export function apply(ctx: Context, config: Config = { maxBodyBytes: DEFAULT_MAX
         return
       }
       const path = new URL(request.url ?? '/', 'http://dsh.invalid').pathname
-      const remoteAddress = request.socket?.remoteAddress
-      const platformHttpController = ctx.get('platformHttpController') as PlatformHttpControllerLike | undefined
+      const remoteAddress = request.socket.remoteAddress
+      const platformHttpController = ctx.get('platformHttpController')
       if (platformHttpController === undefined) {
         throw new Error('novel-authoring-http: platformHttpController is unavailable')
       }
@@ -188,7 +189,7 @@ function bodyOf(request: NovelAuthoringHttpRequest): Record<string, unknown> {
 }
 
 function stringField(value: Record<string, unknown>, key: string): string | null {
-  return typeof value[key] === 'string' && value[key].trim() !== '' ? value[key] as string : null
+  return typeof value[key] === 'string' && value[key].trim() !== '' ? value[key] : null
 }
 
 function memberRole(value: Record<string, unknown>): 'admin' | 'editor' | 'member' | null {
@@ -362,6 +363,8 @@ export class NovelAuthoringHttpController {
       }
       if (method === 'POST' && parts.length === 4 && parts[0] === 'api' && parts[1] === 'novels' && parts[3] === 'proposals') {
         if (this.principal.actorType !== 'agent') return response(404, { error: 'not_found' })
+        const targetType = stringField(body, 'targetType')
+        if (!isNovelDraftTargetType(targetType)) return response(400, { error: 'invalid_request' })
         const targetId = stringField(body, 'targetId')
         const baseVersionNo = typeof body.baseVersionNo === 'number' ? body.baseVersionNo : undefined
         const conflictResult = typeof body.conflictResult === 'object' && body.conflictResult !== null && !Array.isArray(body.conflictResult) ? body.conflictResult as Record<string, unknown> : undefined
@@ -369,7 +372,7 @@ export class NovelAuthoringHttpController {
           generationRunId: stringField(body, 'generationRunId') ?? '',
           workspaceId: this.workspace(stringField(body, 'workspaceId') ?? ''),
           novelId: parts[2] ?? '',
-          targetType: stringField(body, 'targetType') as DraftProposalInput['targetType'],
+          targetType,
           operation: (stringField(body, 'operation') ?? 'create') as DraftProposalInput['operation'],
           proposedContent: typeof body.proposedContent === 'object' && body.proposedContent !== null && !Array.isArray(body.proposedContent) ? body.proposedContent as Record<string, unknown> : {},
           validationResult: typeof body.validationResult === 'object' && body.validationResult !== null && !Array.isArray(body.validationResult) ? body.validationResult as Record<string, unknown> : {},
@@ -378,7 +381,7 @@ export class NovelAuthoringHttpController {
           ...(baseVersionNo === undefined ? {} : { baseVersionNo }),
           ...(conflictResult === undefined ? {} : { conflictResult }),
         }
-        if (input.generationRunId === '' || input.targetType === undefined || input.idempotencyKey === '') return response(400, { error: 'invalid_request' })
+        if (input.generationRunId === '' || input.idempotencyKey === '') return response(400, { error: 'invalid_request' })
         return jsonBody(await this.services.authoring.createDraftProposal(input))
       }
       if (method === 'POST' && parts.length === 4 && parts[0] === 'api' && parts[1] === 'proposals' && parts[3] === 'review') {

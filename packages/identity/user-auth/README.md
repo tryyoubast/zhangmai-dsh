@@ -56,6 +56,8 @@ Use `UserAuthService` with a transactional `AuthStore`. Persist only `hashToken(
 
 Email verification is one required store operation: the backing store consumes an unexpired, unused token and activates its user atomically.
 
+`AuthHttpController.handle()` awaits route operations inside its error handler. Credential-validation errors matching its existing classification return `400 invalid_request`; other failures return `500 authentication_unavailable` without raw error details. Session resolvers may use instance state: the controller calls their methods on the resolver object. JWT parsing validates decoded objects and fields before exposing claims.
+
 </details>
 
 -----

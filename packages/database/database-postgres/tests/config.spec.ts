@@ -8,7 +8,7 @@ import {
 
 describe('resolveDatabaseConfig', () => {
   it('fails loudly when DATABASE_URL is missing', () => {
-    expect(() => resolveDatabaseConfig({})).toThrowError(DatabaseConfigurationError)
+    expect(() => resolveDatabaseConfig({})).toThrow(DatabaseConfigurationError)
     expect(() => resolveDatabaseConfig({})).toThrow(/DATABASE_URL is required/)
   })
 
