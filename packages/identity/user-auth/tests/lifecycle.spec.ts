@@ -10,7 +10,9 @@ import {
   hashToken,
   verifyAccessToken,
   RefreshTokenService,
+  type RefreshTokenReplacement,
   type RefreshTokenRecord,
+  type RefreshTokenRotationResult,
   type RefreshTokenStore,
   RedisAuthRateLimiter,
   AuthTemplateMailProvider,
@@ -172,10 +174,32 @@ describe('authentication lifecycle', () => {
       readonly records = new Map<string, RefreshTokenRecord>()
       readonly revokedFamilies: string[] = []
       async create(record: RefreshTokenRecord): Promise<void> { this.records.set(record.tokenHash, record) }
-      async findByHash(tokenHashValue: string): Promise<RefreshTokenRecord | null> { return this.records.get(tokenHashValue) ?? null }
-      async rotate(current: RefreshTokenRecord, replacement: RefreshTokenRecord): Promise<void> {
-        this.records.set(current.tokenHash, { ...current, usedAt: new Date() })
-        this.records.set(replacement.tokenHash, replacement)
+      async rotate(tokenHashValue: string, replacement: RefreshTokenReplacement, now: Date): Promise<RefreshTokenRotationResult> {
+        const current = this.records.get(tokenHashValue)
+        if (current === undefined || current.revokedAt !== null || current.expiresAt <= now) return { status: 'invalid' }
+        if (current.usedAt !== null) {
+          this.revokedFamilies.push(current.familyId)
+          for (const [hash, record] of this.records) {
+            if (record.familyId === current.familyId) this.records.set(hash, { ...record, revokedAt: now })
+          }
+          return { status: 'reused' }
+        }
+        this.records.set(current.tokenHash, { ...current, usedAt: now })
+        this.records.set(replacement.tokenHash, {
+          ...replacement,
+          userId: current.userId,
+          sessionId: current.sessionId,
+          familyId: current.familyId,
+          usedAt: null,
+          revokedAt: null,
+        })
+        return {
+          status: 'rotated',
+          id: replacement.id,
+          userId: current.userId,
+          sessionId: current.sessionId,
+          familyId: current.familyId,
+        }
       }
       async revokeFamily(familyId: string): Promise<void> { this.revokedFamilies.push(familyId) }
     }

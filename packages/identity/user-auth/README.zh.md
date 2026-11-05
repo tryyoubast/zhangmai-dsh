@@ -52,7 +52,7 @@ kind: "package-library"
 
 ### 安全约定
 
-使用 `UserAuthService` 时必须提供事务性的 `AuthStore`。不透明 Token 只能保存 `hashToken()` 结果。使用 `RefreshTokenService` 轮换 Refresh Token，并在检测到重用时撤销整个 Token Family。EdDSA 私钥必须放在 Secret Manager，Access Token Claims 不得包含邮箱、密码或其他 PII。
+使用 `UserAuthService` 时必须提供事务性的 `AuthStore`。不透明 Token 只能保存 `hashToken()` 结果。使用 `RefreshTokenService` 轮换 Refresh Token，并在检测到重用时撤销整个 Token Family。PostgreSQL 适配器为每个 Family 使用同一把事务级咨询锁（advisory lock），串行化轮换和 `revokeFamily()`。密码重置会按 UUID 顺序锁定该用户涉及的每个 Family，再更新密码、Session 和 Refresh Token。轮换在显式 `READ COMMITTED` 事务中取得 Family 锁后重新读取并锁定传入 Token 对应的行；重放会原子撤销所有已提交的后代 Token，并追加安全审计事件。未知、过期、已撤销和被重放的 Token 对 HTTP 调用方统一返回 `401 invalid_refresh_token`；数据库故障仍向上传播。EdDSA 私钥必须放在 Secret Manager，Access Token Claims 不得包含邮箱、密码或其他 PII。
 
 邮箱验证是一个必需的存储操作：底层 Store 必须在原子事务中消费未过期且未使用的令牌，并激活对应用户。
 
@@ -83,7 +83,8 @@ kind: "package-library"
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- 本包不提供完整 HTTP 服务器／路由器、Redis 客户端、SMTP 客户端、Cookie 中间件或密钥管理服务。`PostgresAuthStore` 和 `PostgresRefreshTokenStore` 是基于 Drizzle 的轻量 Store 适配器，但调用方负责 PostgreSQL 连接池、迁移、事务／RLS 上下文和运行时凭据。部署方必须提供 Redis 限流、SMTP／邮件投递、工作区身份解析、EdDSA 密钥存储及外围框架适配器，并使用支持所需 Argon2 原语的 Node 运行时。
+- 本包不提供完整 HTTP 服务器／路由器、Redis 客户端、SMTP 客户端、Cookie 中间件或密钥管理服务。`PostgresAuthStore` 和 `PostgresRefreshTokenStore` 是基于 Drizzle 的轻量 Store 适配器；调用方负责 PostgreSQL 连接池、迁移、请求级 RLS 上下文和运行时凭据。部署方必须提供 Redis 限流、SMTP／邮件投递、工作区身份解析、EdDSA 密钥存储及外围框架适配器，并使用支持所需 Argon2 原语的 Node 运行时。
+- Store 自行拥有顶层数据库事务，调用方不得把它包装在已有事务中。所有轮换和 Family 撤销实现必须使用相同的 Family 锁协议；`create()` 仅在新 Family 中签发首个 Token，后代 Token 必须通过 `rotate()` 创建。部署时必须先排空旧版刷新请求和实例，再把刷新流量路由到此实现；混合版本不保证 Family 撤销。其他 Session 与 Access Token 生命周期保持不变。
 
 <a id="dev-note"></a>
 ### 开发备注

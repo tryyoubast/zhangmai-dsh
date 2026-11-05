@@ -943,11 +943,44 @@ export interface RefreshTokenRecord {
   readonly revokedAt: Date | null
 }
 
+/** Replacement material generated before an atomic refresh-token rotation. */
+export interface RefreshTokenReplacement {
+  readonly id: string
+  readonly tokenHash: string
+  readonly expiresAt: Date
+}
+
+/** Result of atomically validating and rotating one refresh token. */
+export type RefreshTokenRotationResult =
+  | {
+    readonly status: 'rotated'
+    readonly id: string
+    readonly userId: string
+    readonly sessionId: string
+    readonly familyId: string
+  }
+  | { readonly status: 'invalid' }
+  | { readonly status: 'reused' }
+
 /** Atomic persistence seam for refresh-token rotation and family revocation. */
 export interface RefreshTokenStore {
+  /** Persist the first token in a fresh family; descendants must be created by rotate().
+   * @param record Initial token metadata without raw secrets.
+   * @returns Completion after persistence.
+   */
   create(record: RefreshTokenRecord): Promise<void>
-  findByHash(tokenHash: string): Promise<RefreshTokenRecord | null>
-  rotate(current: RefreshTokenRecord, replacement: RefreshTokenRecord): Promise<void>
+  /** Serialize with rotations and revocations of every generation in the same family.
+   * Reuse revokes all descendants and appends a security event in one transaction; database failures reject.
+   * @param tokenHash Hash of the presented token.
+   * @param replacement Metadata to persist only after successful validation.
+   * @param now Validation and mutation timestamp.
+   * @returns Rotated identity, invalid token, or committed replay revocation.
+   */
+  rotate(tokenHash: string, replacement: RefreshTokenReplacement, now: Date): Promise<RefreshTokenRotationResult>
+  /** Revoke all family tokens, including replacements from competing rotations.
+   * @param familyId Family to revoke without affecting other sessions.
+   * @returns Completion after revocation commits.
+   */
   revokeFamily(familyId: string): Promise<void>
 }
 
@@ -986,34 +1019,24 @@ export class RefreshTokenService {
    * Replace a usable refresh token; observing prior use revokes its family.
    * @param token - Raw refresh credential whose hash identifies the stored record.
    * @returns The replacement credential and owner IDs, or null for unknown, revoked, expired, or already-used tokens.
-   * @throws When persistence fails, including a concurrent rotation rejected by the store.
+   * @throws When persistence or replay-audit writing fails; unknown, expired, revoked, and reused tokens return null.
    */
   async rotate(token: string): Promise<{ token: string; familyId: string; id: string; userId: string; sessionId: string } | null> {
-    const current = await this.store.findByHash(hashToken(token))
     const now = this.now()
-    if (current === null || current.revokedAt !== null || current.expiresAt <= now) return null
-    if (current.usedAt !== null) {
-      await this.store.revokeFamily(current.familyId)
-      return null
-    }
     const replacementToken = createOpaqueToken(48)
     const replacement = {
       id: randomUUID(),
-      userId: current.userId,
-      sessionId: current.sessionId,
-      familyId: current.familyId,
       tokenHash: hashToken(replacementToken),
       expiresAt: new Date(now.getTime() + this.ttlMs),
-      usedAt: null,
-      revokedAt: null,
-    } satisfies RefreshTokenRecord
-    await this.store.rotate(current, replacement)
+    } satisfies RefreshTokenReplacement
+    const result = await this.store.rotate(hashToken(token), replacement, now)
+    if (result.status !== 'rotated') return null
     return {
       token: replacementToken,
-      familyId: replacement.familyId,
-      id: replacement.id,
-      userId: replacement.userId,
-      sessionId: replacement.sessionId,
+      familyId: result.familyId,
+      id: result.id,
+      userId: result.userId,
+      sessionId: result.sessionId,
     }
   }
 

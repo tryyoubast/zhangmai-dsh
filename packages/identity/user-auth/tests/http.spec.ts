@@ -14,7 +14,9 @@ import {
   type AuthHttpSessionResolver,
   type AuthLifecycleStore,
   type AuthUserRecord,
+  type RefreshTokenReplacement,
   type RefreshTokenRecord,
+  type RefreshTokenRotationResult,
   type RefreshTokenStore,
 } from '../src/index.ts'
 
@@ -91,13 +93,33 @@ class HttpStore implements AuthLifecycleStore, RefreshTokenStore {
     this.refresh.set(record.tokenHash, record)
     return Promise.resolve()
   }
-  findByHash(tokenHashValue: string): Promise<RefreshTokenRecord | null> {
-    return Promise.resolve(this.refresh.get(tokenHashValue) ?? null)
-  }
-  rotate(current: RefreshTokenRecord, replacement: RefreshTokenRecord): Promise<void> {
-    this.refresh.set(current.tokenHash, { ...current, usedAt: new Date() })
-    this.refresh.set(replacement.tokenHash, replacement)
-    return Promise.resolve()
+  rotate(tokenHashValue: string, replacement: RefreshTokenReplacement, now: Date): Promise<RefreshTokenRotationResult> {
+    const current = this.refresh.get(tokenHashValue)
+    if (current === undefined || current.revokedAt !== null || current.expiresAt <= now) {
+      return Promise.resolve({ status: 'invalid' })
+    }
+    if (current.usedAt !== null) {
+      for (const [hash, record] of this.refresh) {
+        if (record.familyId === current.familyId) this.refresh.set(hash, { ...record, revokedAt: now })
+      }
+      return Promise.resolve({ status: 'reused' })
+    }
+    this.refresh.set(current.tokenHash, { ...current, usedAt: now })
+    this.refresh.set(replacement.tokenHash, {
+      ...replacement,
+      userId: current.userId,
+      sessionId: current.sessionId,
+      familyId: current.familyId,
+      usedAt: null,
+      revokedAt: null,
+    })
+    return Promise.resolve({
+      status: 'rotated',
+      id: replacement.id,
+      userId: current.userId,
+      sessionId: current.sessionId,
+      familyId: current.familyId,
+    })
   }
   revokeFamily(familyId: string): Promise<void> {
     for (const [hash, record] of this.refresh) {
@@ -207,9 +229,11 @@ describe('authentication HTTP controller', () => {
     expect(result.tokenType).toBe('Bearer')
     expect(result.refreshToken).not.toBe(issued.token)
     if (typeof result.accessToken !== 'string' || typeof result.refreshToken !== 'string') throw new Error('credentials missing')
+    const replacementToken = result.refreshToken
     expect(verifyAccessToken(result.accessToken, { publicKey, issuer: 'dsh', audience: 'dsh-api', now: now.getTime() }))
       .toMatchObject({ sub: 'user-1', sid: 'session-1' })
-    expect(await store.findByHash(hashToken(result.refreshToken))).toMatchObject({ userId: 'user-1', sessionId: 'session-1' })
+    expect([...store.refresh.values()].find(record => record.tokenHash === hashToken(replacementToken)))
+      .toMatchObject({ userId: 'user-1', sessionId: 'session-1' })
   })
 
   it('resolves a browser principal from a hashed __Host session cookie', async () => {
@@ -463,6 +487,38 @@ describe('authentication HTTP controller', () => {
 
     expect(response.status).toBe(401)
     expect(body(response)).toEqual({ error: 'invalid_refresh_token' })
+  })
+
+  it('maps refresh-token replay to the same 401 response without throwing', async () => {
+    const { generateKeyPairSync } = await import('node:crypto')
+    const { privateKey, publicKey } = generateKeyPairSync('ed25519')
+    const now = new Date('2026-01-01T00:00:00Z')
+    const store = new HttpStore()
+    const refresh = await new RefreshTokenService(store, () => now).issue('user-1', 'session-1')
+    const controller = new AuthHttpController(new UserAuthService(store), store, {
+      now: () => now,
+      accessToken: { privateKey, publicKey, issuer: 'dsh', audience: 'dsh-api' },
+      sessionResolver: {
+        findSessionByTokenHash: async () => null,
+        findSessionById: async sessionId => ({
+          userId: 'user-1', sessionId, clientType: 'official-client',
+          expiresAt: new Date('2099-01-01T00:00:00Z'), revokedAt: null,
+        }),
+        revokeSession: async () => undefined,
+      },
+      resolveIdentity: async userId => ({ userId, workspaceId: 'workspace-1', roles: ['owner'] }),
+    })
+
+    const first = await controller.handle({
+      method: 'POST', path: '/api/auth/refresh', headers: {}, body: { refreshToken: refresh.token },
+    })
+    const replay = await controller.handle({
+      method: 'POST', path: '/api/auth/refresh', headers: {}, body: { refreshToken: refresh.token },
+    })
+
+    expect(first.status).toBe(200)
+    expect(replay.status).toBe(401)
+    expect(body(replay)).toEqual({ error: 'invalid_refresh_token' })
   })
 
   it('fails closed when refresh cannot resolve the owning session', async () => {

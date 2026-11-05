@@ -1,6 +1,8 @@
 /** Persist hashed authentication material; combined lifecycle operations own their database transactions. */
 import {
   and,
+  asc,
+  auditEvents,
   emailVerificationTokens,
   eq,
   gt,
@@ -18,12 +20,20 @@ import type {
   AuthLifecycleStore,
   AuthUserRecord,
   RefreshTokenRecord,
+  RefreshTokenReplacement,
+  RefreshTokenRotationResult,
   RefreshTokenStore,
 } from './index.ts'
 
 type AuthStatus = AuthUserRecord['status']
 
 type DatabaseClientType = 'web' | 'official_client'
+
+async function lockRefreshTokenFamily(db: DshDatabase, familyId: string): Promise<void> {
+  await db.execute(sql`SELECT pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('auth.refresh_token_family:' || ${familyId}::uuid::text, 0)
+  )`)
+}
 
 /**
  * Map the public authentication client name to the constrained SQL value.
@@ -54,19 +64,6 @@ function authUser(record: typeof users.$inferSelect): AuthUserRecord {
     failedLoginCount: record.failedLoginCount,
     lockedUntil: record.lockedUntil,
     passwordChangedAt: record.passwordChangedAt,
-  }
-}
-
-function refreshRecord(record: typeof refreshTokens.$inferSelect): RefreshTokenRecord {
-  return {
-    id: record.id,
-    userId: record.userId,
-    sessionId: record.sessionId,
-    familyId: record.familyId,
-    tokenHash: record.tokenHash,
-    expiresAt: record.expiresAt,
-    usedAt: record.usedAt,
-    revokedAt: record.revokedAt,
   }
 }
 
@@ -202,10 +199,15 @@ export class PostgresAuthStore implements AuthLifecycleStore, RefreshTokenStore 
   async resetPassword(userId: string, passwordHash: string, now: Date): Promise<void> {
     await this.database.db.transaction(async (transaction) => {
       const db = transaction as unknown as DshDatabase
+      const families = await db.selectDistinct({ familyId: refreshTokens.familyId })
+        .from(refreshTokens)
+        .where(eq(refreshTokens.userId, userId))
+        .orderBy(asc(refreshTokens.familyId))
+      for (const { familyId } of families) await lockRefreshTokenFamily(db, familyId)
       await db.update(users).set({ passwordHash, passwordChangedAt: now, updatedAt: now }).where(eq(users.id, userId))
       await db.update(sessions).set({ revokedAt: now }).where(and(eq(sessions.userId, userId), isNull(sessions.revokedAt)))
       await db.update(refreshTokens).set({ revokedAt: now }).where(and(eq(refreshTokens.userId, userId), isNull(refreshTokens.revokedAt)))
-    })
+    }, { isolationLevel: 'read committed' })
   }
 
   /**
@@ -257,29 +259,74 @@ export class PostgresAuthStore implements AuthLifecycleStore, RefreshTokenStore 
     await this.database.db.insert(refreshTokens).values(record)
   }
 
-  async findByHash(tokenHash: string): Promise<RefreshTokenRecord | null> {
-    const [record] = await this.database.db.select().from(refreshTokens).where(eq(refreshTokens.tokenHash, tokenHash)).limit(1)
-    return record === undefined ? null : refreshRecord(record)
-  }
-
-  async rotate(current: RefreshTokenRecord, replacement: RefreshTokenRecord): Promise<void> {
-    await this.database.db.transaction(async (transaction) => {
+  async rotate(tokenHash: string, replacement: RefreshTokenReplacement, now: Date): Promise<RefreshTokenRotationResult> {
+    return this.database.db.transaction(async (transaction) => {
       const db = transaction as unknown as DshDatabase
-      const [claimed] = await db.update(refreshTokens).set({ usedAt: this.now(), replacedBy: replacement.id }).where(and(
-        eq(refreshTokens.id, current.id),
-        isNull(refreshTokens.usedAt),
-        isNull(refreshTokens.revokedAt),
-      )).returning({ id: refreshTokens.id })
-      if (claimed === undefined) throw new Error('refresh token was already rotated')
-      await db.insert(refreshTokens).values(replacement)
-    })
+      const [family] = await db.select({ familyId: refreshTokens.familyId }).from(refreshTokens)
+        .where(eq(refreshTokens.tokenHash, tokenHash)).limit(1)
+      if (family === undefined) return { status: 'invalid' }
+
+      await lockRefreshTokenFamily(db, family.familyId)
+      // A separate READ COMMITTED statement sees descendants committed while the family lock was awaited.
+      const [current] = await db.select().from(refreshTokens)
+        .where(eq(refreshTokens.tokenHash, tokenHash))
+        .limit(1)
+        .for('update')
+      if (current === undefined || current.revokedAt !== null || current.expiresAt <= now) return { status: 'invalid' }
+
+      if (current.usedAt !== null) {
+        await db.update(refreshTokens).set({ revokedAt: now }).where(and(
+          eq(refreshTokens.familyId, current.familyId),
+          isNull(refreshTokens.revokedAt),
+        ))
+        await db.insert(auditEvents).values({
+          workspaceId: null,
+          actorType: 'system',
+          actorId: 'auth.refresh_token_service',
+          action: 'auth.refresh_token_reuse_detected',
+          targetType: 'refresh_token_family',
+          targetId: current.familyId,
+          metadata: {
+            userId: current.userId,
+            sessionId: current.sessionId,
+            tokenId: current.id,
+          },
+          createdAt: now,
+        })
+        return { status: 'reused' }
+      }
+
+      await db.insert(refreshTokens).values({
+        ...replacement,
+        userId: current.userId,
+        sessionId: current.sessionId,
+        familyId: current.familyId,
+        usedAt: null,
+        revokedAt: null,
+      })
+      const [rotated] = await db.update(refreshTokens).set({ usedAt: now, replacedBy: replacement.id })
+        .where(eq(refreshTokens.id, current.id))
+        .returning({ id: refreshTokens.id })
+      if (rotated === undefined) throw new Error('refresh token was not rotated')
+      return {
+        status: 'rotated',
+        id: replacement.id,
+        userId: current.userId,
+        sessionId: current.sessionId,
+        familyId: current.familyId,
+      }
+    }, { isolationLevel: 'read committed' })
   }
 
   async revokeFamily(familyId: string): Promise<void> {
-    await this.database.db.update(refreshTokens).set({ revokedAt: this.now() }).where(and(
-      eq(refreshTokens.familyId, familyId),
-      isNull(refreshTokens.revokedAt),
-    ))
+    await this.database.db.transaction(async (transaction) => {
+      const db = transaction as unknown as DshDatabase
+      await lockRefreshTokenFamily(db, familyId)
+      await db.update(refreshTokens).set({ revokedAt: this.now() }).where(and(
+        eq(refreshTokens.familyId, familyId),
+        isNull(refreshTokens.revokedAt),
+      ))
+    }, { isolationLevel: 'read committed' })
   }
 }
 

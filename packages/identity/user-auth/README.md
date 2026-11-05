@@ -52,7 +52,7 @@ Browser login returns a `__Host-dsh_session` cookie with `HttpOnly`, `Secure`, `
 
 ### Security contract
 
-Use `UserAuthService` with a transactional `AuthStore`. Persist only `hashToken()` results for opaque tokens. Use `RefreshTokenService` to rotate refresh tokens and revoke a token family after reuse. Keep EdDSA private keys in a secret manager and keep access-token claims free of email, password, and other PII.
+Use `UserAuthService` with a transactional `AuthStore`. Persist only `hashToken()` results for opaque tokens. Use `RefreshTokenService` to rotate refresh tokens and revoke a token family after reuse. The PostgreSQL adapter serializes rotation and `revokeFamily()` with the same transaction advisory lock per family. Password reset locks each affected family in UUID order before it updates the password, sessions, or refresh tokens. Rotation re-reads and locks the presented token row after acquiring that lock in an explicit `READ COMMITTED` transaction; a replay revokes every committed descendant and appends a security audit event atomically. Unknown, expired, revoked, and reused tokens are all returned to HTTP callers as `401 invalid_refresh_token`; database failures still propagate. Keep EdDSA private keys in a secret manager and keep access-token claims free of email, password, and other PII.
 
 Email verification is one required store operation: the backing store consumes an unexpired, unused token and activates its user atomically.
 
@@ -84,6 +84,7 @@ Authentication does not mutate model input prefixes; services consuming the prin
 <a id="known-limitations-and-deferred-work"></a>
 
 - The package does not provide a complete HTTP server/router, Redis client, SMTP client, cookie middleware, or a key-management service. `PostgresAuthStore` and `PostgresRefreshTokenStore` are thin Drizzle-backed Store adapters, but the caller owns the PostgreSQL connection pool, migrations, transaction/RLS context, and runtime credentials. Deployments must provide Redis rate limiting, SMTP/mail delivery, workspace identity resolution, EdDSA key storage, and the surrounding framework adapters. Use a Node runtime with the required Argon2 primitive.
+- The Store owns top-level database transactions; callers must not wrap it in an existing transaction. All rotation and family-revocation implementations must use the same family-lock protocol; `create()` issues only the first token in a fresh family, and descendants go through `rotate()`. Deployments must drain old refresh requests and instances before routing refresh traffic to this implementation; mixed versions do not guarantee family revocation. Other sessions and access-token lifetimes are unchanged.
 
 <a id="dev-note"></a>
 ### Dev Note

@@ -6786,6 +6786,13 @@ importers:
       '@deepseek-ai/dsh-database-postgres':
         specifier: workspace:^
         version: link:../../database/database-postgres
+    devDependencies:
+      '@types/pg':
+        specifier: ^8.15.5
+        version: 8.23.1
+      pg:
+        specifier: ^8.16.3
+        version: 8.23.0
 
   packages/interaction/commands:
     dependencies:

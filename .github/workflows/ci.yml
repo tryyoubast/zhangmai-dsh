@@ -681,6 +681,61 @@ jobs:
         shell: pwsh
         run: pnpm run check:ci:windows-observational
 
+  postgres-18-auth:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    name: postgres 18 / refresh-token concurrency
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_DB: dsh_auth_test
+          POSTGRES_PASSWORD: dsh_test_admin_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d dsh_auth_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_ADMIN_URL: postgres://postgres:dsh_test_admin_password@localhost:5432/dsh_auth_test
+      DATABASE_MIGRATION_URL: postgres://dsh_test_migration_login:dsh_test_migration_password@localhost:5432/dsh_auth_test
+      DATABASE_TEST_MIGRATION_URL: postgres://dsh_test_migration_login:dsh_test_migration_password@localhost:5432/dsh_auth_test
+      DATABASE_TEST_URL: postgres://dsh_test_auth_login:dsh_test_auth_password@localhost:5432/dsh_auth_test
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm-postgres-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build host packages for the migration entry point
+        run: pnpm run build:lib:host
+
+      - name: Bootstrap database ownership and restricted logins
+        run: |
+          psql "$DATABASE_ADMIN_URL" -v ON_ERROR_STOP=1 -f packages/database/database-postgres/migrations/0001_auth_workspace_novel_ai.sql
+          psql "$DATABASE_ADMIN_URL" -v ON_ERROR_STOP=1 -f packages/database/database-postgres/scripts/bootstrap-migrator-ownership.sql
+          psql "$DATABASE_ADMIN_URL" -v ON_ERROR_STOP=1 -c "CREATE ROLE dsh_test_migration_login LOGIN PASSWORD 'dsh_test_migration_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS IN ROLE dsh_migrator"
+          psql "$DATABASE_ADMIN_URL" -v ON_ERROR_STOP=1 -c "CREATE ROLE dsh_test_auth_login LOGIN PASSWORD 'dsh_test_auth_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS IN ROLE dsh_auth_runtime"
+
+      - name: Apply migrations as the deployment-only role
+        run: pnpm --filter @deepseek-ai/dsh-database-postgres run db:migrate
+
+      - name: Run refresh-token PostgreSQL concurrency tests
+        run: pnpm run test:postgres
+
   # Single stable required check for branch protection: require "all checks
   # passed" instead of enumerating matrix legs whose names change as lanes and
   # node versions evolve. Every blocking job in THIS workflow must be listed in
@@ -706,7 +761,7 @@ jobs:
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
           || 'ubuntu-latest' }}
-    needs: [node-24, node-24-coverage, node-24-bench, node-24-consumers, node-compat, python-sdk, python-runtime, windows-build, windows-native-tests]
+    needs: [node-24, node-24-coverage, node-24-bench, node-24-consumers, node-compat, python-sdk, python-runtime, windows-build, windows-native-tests, postgres-18-auth]
     if: ${{ !cancelled() && github.event_name == 'pull_request' }}
     steps:
       - name: Fail if any needed job did not succeed
