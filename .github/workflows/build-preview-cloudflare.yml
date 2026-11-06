@@ -89,11 +89,11 @@ jobs:
           if-no-files-found: error
 
       - name: Report build-only validation
-        if: ${{ vars.DSH_PREVIEW_DEPLOY_ENABLED != 'true' || github.event.pull_request.head.repo.full_name != github.repository }}
+        if: ${{ vars.DSH_PREVIEW_DEPLOY_ENABLED != 'true' || github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login == 'dependabot[bot]' }}
         run: echo "PR preview build validation passed. This run validated build only; no preview was deployed." >> "$GITHUB_STEP_SUMMARY"
 
   deploy:
-    if: ${{ vars.DSH_PREVIEW_DEPLOY_ENABLED == 'true' && github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ vars.DSH_PREVIEW_DEPLOY_ENABLED == 'true' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]' }}
     needs: preview
     runs-on: ubuntu-24.04
     name: cloudflare pages deploy

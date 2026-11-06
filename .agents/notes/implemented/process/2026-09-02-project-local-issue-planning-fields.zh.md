@@ -14,7 +14,7 @@ Priority、影响面、解决代价和日期用于在 `DSH Issue Management` 中
 
 `DSH Issue Management` Project 使用 Project custom field 存储 `Priority`、`Severity`、`Cost`、`Start Date` 和 `Target Date`。`Severity` 沿用组织字段 `影响面` 的选项含义，`Cost` 沿用 `解决代价` 的选项含义。
 
-默认拉取请求策略使用仓库 `GITHUB_TOKEN`，通过当前仓库 REST endpoint 读取拉取请求和其引用的 Issue；它不会读取 Project 字段。启用 Project 生命周期自动化后，生命周期工作流才会从已配置的 Project 解析 `Priority` 和 `Start Date`，拒绝 Issue 字段投影或错误的数据类型，从 Project item 读取 Priority，并通过 `updateProjectV2ItemFieldValue` 写入 Start Date。组织 Issue 字段仅作为带有 `Legacy ...` 前缀的迁移源保留，仓库工作流不会读取它们。
+必需的拉取请求策略只读取拉取请求状态和标签；Issue 引用是可选项，也不会触发 Issue 或 Project 读取。PR 的可选 `p0`–`p3` 标签是 PR 优先级来源。Project `Priority` 只用于规划 Issue，不会推导成 PR 标签。启用 Project 生命周期自动化后，生命周期工作流才会从已配置的 Project 解析 `Priority` 和 `Start Date`，拒绝 Issue 字段投影或错误的数据类型，从 Project item 读取 Priority，并通过 `updateProjectV2ItemFieldValue` 写入 Start Date。组织 Issue 字段仅作为带有 `Legacy ...` 前缀的迁移源保留，仓库工作流不会读取它们。
 
 PR 策略工作流检出默认分支并禁用检出凭据持久化，仅使用仓库范围的读取权限；它不会创建 GitHub App token。除非 `DSH_PROJECT_AUTOMATION_ENABLED == 'true'`，Project 生命周期自动化一直禁用。启用时，工作流会先验证已配置的 organization/repository 与 `GITHUB_REPOSITORY` 匹配，并确认 Project 字段、状态、编号和时区完整，再使用已配置的 App client ID 与私钥创建生命周期 token。
 
@@ -24,7 +24,7 @@ Issue 生命周期工作流仅在 `pull_request.opened` 时初始化 `Start Date
 
 ## 验证
 
-[Issue 管理测试](../../../../.github/issue-management/policy.test.mjs)要求 Priority 和 Start Date 使用 Project custom field，覆盖上海时区日期边界、仅 opened 分派、空值写入、已有值保留和 Project item 缺失，并固定 `updateProjectV2ItemFieldValue`。[工作流测试](../../../../scripts/ci-workflow.spec.ts)固定 Project token 默认关闭、仓库匹配配置、必需凭据、fork 跳过，以及只读仓库 REST 策略。删除组织字段前必须逐项比较所有旧字段值与 Project 值，包括已归档的 Project item。
+[Issue 管理测试](../../../../.github/issue-management/policy.test.mjs)要求 Issue Priority 和 Start Date 使用 Project custom field，覆盖上海时区日期边界、仅 opened 分派、空值写入、已有值保留和 Project item 缺失，并固定 `updateProjectV2ItemFieldValue`。[工作流测试](../../../../scripts/ci-workflow.spec.ts)固定 Project token 默认关闭、仓库匹配配置、必需凭据、fork 与 Dependabot 跳过，以及仅读取 PR 的权限。删除组织字段前必须逐项比较所有旧字段值与 Project 值，包括已归档的 Project item。
 
 ## 考虑过的替代方案
 

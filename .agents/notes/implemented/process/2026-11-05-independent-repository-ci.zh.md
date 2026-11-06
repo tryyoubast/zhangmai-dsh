@@ -16,9 +16,9 @@ Status: implemented
 
 `all checks passed` 清单仍包含必需的 PostgreSQL 18 auth 作业，以及现有 Linux、Windows、Node 兼容性和 Python 依赖。CI、安全与评审检查继续承担既有职责。master 自托管 standby 作业仅在 `DSH_SELFHOSTED_STANDBY_ENABLED == 'true'` 时于 master 推送运行；它们仍是诊断证据，不进入拉取请求检查面板。加权人工批准和评审人归属保持不变，分别由[批准策略](../../../../.github/review-ownership/README.md)和[加权批准决策](2026-09-09-blocked-weighted-approvals-remain-pending.zh.md)负责。
 
-[Cloudflare 预览工作流](../../../../.github/workflows/build-preview-cloudflare.yml)始终在 `ubuntu-24.04` 上为拉取请求构建并验证。准确名为 `cloudflare pages preview` 的检查仅构建。部署需要 `DSH_PREVIEW_DEPLOY_ENABLED == 'true'`、同仓库拉取请求、匹配的 Cloudflare 目标配置以及已配置的部署密钥。fork 拉取请求绝不部署，并会收到仅构建的摘要。
+[Cloudflare 预览工作流](../../../../.github/workflows/build-preview-cloudflare.yml)始终在 `ubuntu-24.04` 上为拉取请求构建并验证。准确名为 `cloudflare pages preview` 的检查仅构建。部署需要 `DSH_PREVIEW_DEPLOY_ENABLED == 'true'`、非 Dependabot 作者的同仓库拉取请求、匹配的 Cloudflare 目标配置以及已配置的部署密钥。fork 与 Dependabot 拉取请求只接受构建验证，不会部署。
 
-[Issue policy 工作流](../../../../.github/workflows/issue-policy.yml)检出仓库默认分支，禁用检出凭据持久化，并使用只读的当前仓库 REST 权限执行拉取请求和 Issue 策略检查。[Issue lifecycle 工作流](../../../../.github/workflows/issue-lifecycle.yml)仅在 `DSH_PROJECT_AUTOMATION_ENABLED == 'true'` 时启用 Project App token 路径；启用后，必需的仓库和 Project 配置必须与 `GITHUB_REPOSITORY` 匹配，并且必须配置 App client ID 与私钥。Project mutation 会跳过 fork 拉取请求及其评审事件；默认拉取请求策略仍仅依赖仓库。
+[必需的 Issue policy 工作流](../../../../.github/workflows/issue-policy.yml)检出仓库默认分支，禁用检出凭据持久化，并且只读取拉取请求状态和标签。Issue 引用可选；检查不会查询 Issue 或 Project。PR 的可选 `p0`–`p3` 标签提供其优先级，Project `Priority` 仍只用于 Issue 规划。[Issue lifecycle 工作流](../../../../.github/workflows/issue-lifecycle.yml)仅在 `DSH_PROJECT_AUTOMATION_ENABLED == 'true'` 时启用 Project App token 路径；启用后，必需的仓库和 Project 配置必须与 `GITHUB_REPOSITORY` 匹配，并且必须配置 App client ID 与私钥。Project mutation 会跳过 fork 和 Dependabot 拉取请求及其评审事件；可选生命周期自动化仍可使用有效 Issue 引用。
 
 ## 验证
 

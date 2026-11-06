@@ -27,5 +27,11 @@
   "dependencies": {
     "@deepseek-ai/dsh-database-postgres": "workspace:^",
     "@deepseek-ai/dsh-user-auth": "workspace:^"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "workspace:^"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:^"
   }
 }

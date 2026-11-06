@@ -142,4 +142,18 @@ describe('package payload constraints', () => {
       'lib/types/**/*.d.ts',
     ])
   })
+
+  it('includes the PostgreSQL package migrations and migration tooling', () => {
+    expect(expectedDshPackageFiles({
+      name: '@deepseek-ai/dsh-database-postgres',
+    })).toEqual([
+      'lib/index.js',
+      'migrations/**/*.sql',
+      'migrations/meta/_journal.json',
+      'scripts/**/*.sql',
+      'scripts/**/*.js',
+      'drizzle.config.ts',
+      'lib/types/**/*.d.ts',
+    ])
+  })
 })

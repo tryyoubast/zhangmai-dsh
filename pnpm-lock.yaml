@@ -881,6 +881,10 @@ importers:
       '@deepseek-ai/dsh-user-auth':
         specifier: workspace:^
         version: link:../../identity/user-auth
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
 
   packages/api/remotes:
     dependencies:
@@ -5312,6 +5316,9 @@ importers:
         specifier: ^8.16.3
         version: 8.23.0
     devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
       '@types/pg':
         specifier: ^8.15.5
         version: 8.23.1
@@ -6787,6 +6794,9 @@ importers:
         specifier: workspace:^
         version: link:../../database/database-postgres
     devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
       '@types/pg':
         specifier: ^8.15.5
         version: 8.23.1
@@ -9168,6 +9178,10 @@ importers:
       '@deepseek-ai/dsh-user-auth':
         specifier: workspace:^
         version: link:../../identity/user-auth
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
 
   packages/storage/storage:
     devDependencies:

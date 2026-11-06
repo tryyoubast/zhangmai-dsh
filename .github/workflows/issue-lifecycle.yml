@@ -51,11 +51,11 @@ jobs:
       - name: Record disabled Project automation
         if: ${{ vars.DSH_PROJECT_AUTOMATION_ENABLED != 'true' }}
         run: echo 'Project lifecycle automation is disabled because DSH_PROJECT_AUTOMATION_ENABLED is not true.' >> "$GITHUB_STEP_SUMMARY"
-      - name: Record fork Project automation skip
-        if: ${{ vars.DSH_PROJECT_AUTOMATION_ENABLED == 'true' && github.event_name != 'issues' && github.event.pull_request.head.repo.full_name != github.repository }}
-        run: echo 'Project lifecycle automation was skipped for this fork pull request.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Record fork or Dependabot Project automation skip
+        if: ${{ vars.DSH_PROJECT_AUTOMATION_ENABLED == 'true' && github.event_name != 'issues' && (github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login == 'dependabot[bot]') }}
+        run: echo 'Project lifecycle automation was skipped for this fork or Dependabot pull request.' >> "$GITHUB_STEP_SUMMARY"
       - name: Validate Project configuration
-        if: ${{ vars.DSH_PROJECT_AUTOMATION_ENABLED == 'true' && (github.event_name == 'issues' || (github.event.pull_request.head.repo.full_name == github.repository && (github.event_name != 'pull_request_review' || github.event.review.state == 'changes_requested'))) }}
+        if: ${{ vars.DSH_PROJECT_AUTOMATION_ENABLED == 'true' && (github.event_name == 'issues' || (github.event.pull_request.user.login != 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository && (github.event_name != 'pull_request_review' || github.event.review.state == 'changes_requested'))) }}
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
@@ -72,9 +72,9 @@ jobs:
           })
           if (missing.length > 0) throw new Error(`Issue management config is incomplete: ${missing.join(', ')}`)
           const requiredStatuses = ['Inbox', 'Backlog', 'Ready', 'In progress', 'In review', 'Done', 'No action']
-          const missingStatuses = requiredStatuses.filter((status) => !config.statuses.includes(status))
-          if (missingStatuses.length > 0) {
-            throw new Error(`Issue management config statuses are missing: ${missingStatuses.join(', ')}`)
+          if (config.statuses.length !== requiredStatuses.length
+            || config.statuses.some((status, index) => status !== requiredStatuses[index])) {
+            throw new Error('Issue management config statuses must exactly match the canonical lifecycle order')
           }
           try {
             new Intl.DateTimeFormat('en-US', { timeZone: config.projectTimeZone })
@@ -88,7 +88,7 @@ jobs:
           NODE
       - name: Create project token
         id: app-token
-        if: ${{ vars.DSH_PROJECT_AUTOMATION_ENABLED == 'true' && (github.event_name == 'issues' || (github.event.pull_request.head.repo.full_name == github.repository && (github.event_name != 'pull_request_review' || github.event.review.state == 'changes_requested'))) }}
+        if: ${{ vars.DSH_PROJECT_AUTOMATION_ENABLED == 'true' && (github.event_name == 'issues' || (github.event.pull_request.user.login != 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository && (github.event_name != 'pull_request_review' || github.event.review.state == 'changes_requested'))) }}
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
         with:
           client-id: ${{ vars.DSH_ISSUE_APP_CLIENT_ID }}
@@ -96,7 +96,7 @@ jobs:
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
       - name: Handle repository event
-        if: ${{ vars.DSH_PROJECT_AUTOMATION_ENABLED == 'true' && (github.event_name == 'issues' || (github.event.pull_request.head.repo.full_name == github.repository && (github.event_name != 'pull_request_review' || github.event.review.state == 'changes_requested'))) }}
+        if: ${{ vars.DSH_PROJECT_AUTOMATION_ENABLED == 'true' && (github.event_name == 'issues' || (github.event.pull_request.user.login != 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository && (github.event_name != 'pull_request_review' || github.event.review.state == 'changes_requested'))) }}
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: node .github/issue-management/policy.mjs lifecycle

@@ -18,7 +18,7 @@ Issue-template frontmatter contains only `name`, `about`, and `type`. Markdown h
 
 The pull-request template contains `Motivation`; a `Changes` section with adjacent placeholders for public-interface and behavior changes; and `Testing` entries that show each method directly and place its proof in a local `details` element.
 
-Issue policy does not inspect `details` presentation, visible-body length, title language, title prefixes, or body ownership lines. Every other policy check, warning, lifecycle operation, workflow trigger, and pull-request enforcement exemption retains its existing behavior. This decision adds no metadata repair, Issue classification, data migration, or workflow capability.
+Issue policy does not inspect `details` presentation, visible-body length, title language, title prefixes, or body ownership lines. Pull-request references are optional; the current required labels and priority source are owned by the [independent-repository CI decision](2026-11-05-independent-repository-ci.md). This decision adds no metadata repair, Issue classification, data migration, or workflow capability.
 
 ## Verification
 

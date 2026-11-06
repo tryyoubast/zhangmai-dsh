@@ -28,7 +28,11 @@
   "dependencies": {
     "@deepseek-ai/dsh-database-postgres": "workspace:^"
   },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "workspace:^"
+  },
   "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:^",
     "@types/pg": "^8.15.5",
     "pg": "^8.16.3"
   }

@@ -1,7 +1,7 @@
 import { once } from 'node:events'
 import { createServer } from 'node:http'
 import { readFileSync } from 'node:fs'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { runInNewContext } from 'node:vm'
@@ -941,6 +941,52 @@ describe('Weighted approval workflow', () => {
 })
 
 describe('Issue lifecycle workflow', () => {
+  it('validates the exact Project status order using the trusted inline script', async () => {
+    const lifecycle = loadWorkflow('.github/workflows/issue-lifecycle.yml')
+    const lifecycleJob = workflowJob(lifecycle, 'lifecycle')
+    if (!Array.isArray(lifecycleJob.steps)) throw new TypeError('Issue lifecycle job must define steps')
+    const configStep = lifecycleJob.steps.filter(isRecord).find(step => step.name === 'Validate Project configuration')
+    if (typeof configStep?.run !== 'string') throw new TypeError('Project configuration step must define its script')
+    const script = configStep.run.match(/^node --input-type=module <<'NODE'\r?\n([\s\S]*?)\r?\nNODE\s*$/)?.[1]
+    if (script === undefined) throw new TypeError('Project configuration step must contain an inline script')
+    expect(script).not.toContain("from './.github/issue-management/policy.mjs'")
+
+    const sourceConfig = JSON.parse(readFileSync(resolve(root, '.github/issue-management/config.json'), 'utf8')) as Record<string, unknown>
+    const expectedStatuses = ['Inbox', 'Backlog', 'Ready', 'In progress', 'In review', 'Done', 'No action']
+    const tempRoot = await mkdtemp(join(tmpdir(), 'dsh-project-config-'))
+    const configPath = join(tempRoot, '.github/issue-management/config.json')
+    try {
+      await mkdir(join(tempRoot, '.github/issue-management'), { recursive: true })
+      const validate = async (statuses: string[]) => {
+        await writeFile(configPath, JSON.stringify({ ...sourceConfig, statuses }))
+        return execa(process.execPath, ['--input-type=module', '-e', script], {
+          cwd: tempRoot,
+          env: {
+            ...process.env,
+            GITHUB_REPOSITORY: `${String(sourceConfig.organization)}/${String(sourceConfig.repository)}`,
+          },
+          reject: false,
+          maxBuffer: 32_000,
+        })
+      }
+
+      const valid = await validate(expectedStatuses)
+      expect(valid.exitCode).toBe(0)
+      for (const statuses of [
+        [...expectedStatuses].reverse(),
+        [...expectedStatuses.slice(0, 3), 'Ready', ...expectedStatuses.slice(4)],
+        expectedStatuses.slice(1),
+        [...expectedStatuses, 'Archived'],
+      ]) {
+        const invalid = await validate(statuses)
+        expect(invalid.exitCode).toBe(1)
+        expect(invalid.stderr).toContain('exactly match the canonical lifecycle order')
+      }
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true })
+    }
+  })
+
   it('runs the lifecycle job on every repository event and gates optional Project automation', () => {
     const lifecycle = loadWorkflow('.github/workflows/issue-lifecycle.yml')
     const policy = loadWorkflow('.github/workflows/issue-policy.yml')
@@ -966,14 +1012,14 @@ describe('Issue lifecycle workflow', () => {
       'opened', 'edited', 'synchronize', 'reopened', 'labeled', 'unlabeled', 'review_requested',
     ])
     expect(lifecycleReview.types).toEqual(['submitted'])
-    const enabledAndGated = "${{ vars.DSH_PROJECT_AUTOMATION_ENABLED == 'true' && (github.event_name == 'issues' || (github.event.pull_request.head.repo.full_name == github.repository && (github.event_name != 'pull_request_review' || github.event.review.state == 'changes_requested'))) }}"
+    const enabledAndGated = "${{ vars.DSH_PROJECT_AUTOMATION_ENABLED == 'true' && (github.event_name == 'issues' || (github.event.pull_request.user.login != 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository && (github.event_name != 'pull_request_review' || github.event.review.state == 'changes_requested'))) }}"
     const steps = lifecycleJob.steps.filter(isRecord)
     const checkout = steps.find(s => s.name === 'Check out trusted policy')
     const configStep = steps.find(s => s.name === 'Validate Project configuration')
     const tokenStep = steps.find(s => s.name === 'Create project token')
     const handleStep = steps.find(s => s.name === 'Handle repository event')
     const disabledSummary = steps.find(s => s.name === 'Record disabled Project automation')
-    const forkSummary = steps.find(s => s.name === 'Record fork Project automation skip')
+    const forkSummary = steps.find(s => s.name === 'Record fork or Dependabot Project automation skip')
     expect(checkout).toMatchObject({
       uses: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
       with: {
@@ -987,9 +1033,8 @@ describe('Issue lifecycle workflow', () => {
     expect(configStep?.run).toContain('organization')
     expect(configStep?.run).toContain('repository')
     expect(configStep?.run).toContain('new Intl.DateTimeFormat')
-    const issueConfig = JSON.parse(readFileSync(resolve(root, '.github/issue-management/config.json'), 'utf8')) as { statuses: string[] }
-    for (const status of issueConfig.statuses) expect(configStep?.run).toContain(`'${status}'`)
-    expect(configStep?.run).toContain('config.statuses.includes(status)')
+    expect(configStep?.run).toContain('config.statuses.length !== requiredStatuses.length')
+    expect(configStep?.run).toContain('exactly match the canonical lifecycle order')
     expect(tokenStep).toMatchObject({
       if: enabledAndGated,
       uses: 'actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1',
@@ -1014,9 +1059,9 @@ describe('Issue lifecycle workflow', () => {
     expect(disabledSummary?.run).toContain('GITHUB_STEP_SUMMARY')
     expect(disabledSummary?.run).not.toContain('GH_TOKEN')
     expect(forkSummary).toMatchObject({
-      if: "${{ vars.DSH_PROJECT_AUTOMATION_ENABLED == 'true' && github.event_name != 'issues' && github.event.pull_request.head.repo.full_name != github.repository }}",
+      if: "${{ vars.DSH_PROJECT_AUTOMATION_ENABLED == 'true' && github.event_name != 'issues' && (github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login == 'dependabot[bot]') }}",
     })
-    expect(forkSummary?.run).toContain('Project lifecycle automation was skipped for this fork pull request')
+    expect(forkSummary?.run).toContain('Project lifecycle automation was skipped for this fork or Dependabot pull request')
     const evaluatePredicate = (condition: unknown, eventName: string, event: Record<string, unknown>, enabled: boolean) => {
       if (typeof condition !== 'string') throw new TypeError('lifecycle step must define a condition')
       const result: unknown = runInNewContext(condition.trim().slice(3, -2), {
@@ -1025,14 +1070,18 @@ describe('Issue lifecycle workflow', () => {
       }, { timeout: 1000 })
       return result
     }
-    const sameRepositoryPull = { pull_request: { head: { repo: { full_name: 'acme/repo' } } } }
-    const forkPull = { pull_request: { head: { repo: { full_name: 'fork-owner/repo' } } } }
+    const sameRepositoryPull = { pull_request: { user: { login: 'author' }, head: { repo: { full_name: 'acme/repo' } } } }
+    const forkPull = { pull_request: { user: { login: 'author' }, head: { repo: { full_name: 'fork-owner/repo' } } } }
+    const dependabotPull = { pull_request: { user: { login: 'dependabot[bot]' }, head: { repo: { full_name: 'acme/repo' } } } }
     const changeRequested = { ...sameRepositoryPull, review: { state: 'changes_requested' } }
     const approved = { ...sameRepositoryPull, review: { state: 'approved' } }
     const commented = { ...sameRepositoryPull, review: { state: 'commented' } }
     expect(evaluatePredicate(configStep?.if, 'pull_request', sameRepositoryPull, true)).toBe(true)
     expect(evaluatePredicate(tokenStep?.if, 'pull_request', forkPull, true)).toBe(false)
     expect(evaluatePredicate(handleStep?.if, 'pull_request_review', { ...forkPull, review: { state: 'changes_requested' } }, true)).toBe(false)
+    expect(evaluatePredicate(configStep?.if, 'pull_request', dependabotPull, true)).toBe(false)
+    expect(evaluatePredicate(tokenStep?.if, 'pull_request', dependabotPull, true)).toBe(false)
+    expect(evaluatePredicate(handleStep?.if, 'pull_request_review', { ...dependabotPull, review: { state: 'changes_requested' } }, true)).toBe(false)
     expect(evaluatePredicate(configStep?.if, 'pull_request_review', changeRequested, true)).toBe(true)
     expect(evaluatePredicate(tokenStep?.if, 'pull_request_review', approved, true)).toBe(false)
     expect(evaluatePredicate(handleStep?.if, 'pull_request_review', commented, true)).toBe(false)
@@ -1040,6 +1089,7 @@ describe('Issue lifecycle workflow', () => {
     expect(evaluatePredicate(tokenStep?.if, 'pull_request', sameRepositoryPull, false)).toBe(false)
     expect(evaluatePredicate(forkSummary?.if, 'pull_request', forkPull, true)).toBe(true)
     expect(evaluatePredicate(forkSummary?.if, 'pull_request_review', { ...forkPull, review: { state: 'approved' } }, true)).toBe(true)
+    expect(evaluatePredicate(forkSummary?.if, 'pull_request', dependabotPull, true)).toBe(true)
     expect(evaluatePredicate(forkSummary?.if, 'pull_request', sameRepositoryPull, true)).toBe(false)
     expect(evaluatePredicate(forkSummary?.if, 'pull_request', forkPull, false)).toBe(false)
     expect(evaluatePredicate(forkSummary?.if, 'issues', { issue: { number: 4 } }, true)).toBe(false)
@@ -1053,16 +1103,17 @@ describe('Issue lifecycle workflow', () => {
     expect(workflowEvent(policy, 'pull_request_review').types).toEqual(['submitted'])
   })
 
-  it('uses trusted checkout and repository-scoped read-only token permissions for PR validation', () => {
+  it('uses trusted checkout and read-only pull request permission for PR validation', () => {
     const policy = loadWorkflow('.github/workflows/issue-policy.yml')
     const policyJob = workflowJob(policy, 'policy')
     if (!Array.isArray(policyJob.steps)) throw new TypeError('Issue policy job must define steps')
     const steps = policyJob.steps.filter(isRecord)
     const checkout = steps.find(step => step.name === 'Check out trusted policy')
     const validateStep = steps.find(step => step.name === 'Validate pull request')
+    expect(policy.name).toBe('Issue policy')
+    expect(policyJob.name).toBe('Issue policy')
     expect(policy.permissions).toEqual({
       contents: 'read',
-      issues: 'read',
       'pull-requests': 'read',
     })
     expect(checkout).toMatchObject({
@@ -1084,9 +1135,11 @@ describe('Issue lifecycle workflow', () => {
     })
     expect(validateStep?.run).toContain('node --input-type=module')
     expect(validateStep?.run).toContain("from './.github/issue-management/policy.mjs'")
+    expect(validateStep?.run).not.toContain('parseReferences')
+    expect(validateStep?.run).not.toContain('issues/')
   })
 
-  it('executes the trusted inline adapter against same-repository PR and Issue REST data', async () => {
+  it('executes the trusted inline adapter using PR state and labels only', async () => {
     const policy = loadWorkflow('.github/workflows/issue-policy.yml')
     const policyJob = workflowJob(policy, 'policy')
     if (!Array.isArray(policyJob.steps)) throw new TypeError('Issue policy job must define steps')
@@ -1102,8 +1155,9 @@ describe('Issue lifecycle workflow', () => {
       authorType?: string
       requested?: boolean
       reviewed?: boolean
-      issue: 'valid' | 'missing' | 'pull-request' | 'priority-mismatch' | 'api-error'
-    } = { issue: 'valid' }
+      body?: string
+      labels?: string[]
+    } = {}
     const server = createServer((request, response) => {
       const requestUrl = new URL(request.url ?? '/', 'http://127.0.0.1')
       const path = `${requestUrl.pathname}${requestUrl.search}`
@@ -1115,25 +1169,15 @@ describe('Issue lifecycle workflow', () => {
       if (path === '/api/v3/repos/acme/widget/pulls/17') {
         json(200, {
           number: 17,
-          body: 'Fixes #4',
+          body: scenario.body ?? '',
           draft: scenario.draft ?? false,
           user: { type: scenario.authorType ?? 'User' },
-          labels: [{ name: 'kind/bug-fix' }, { name: 'area/core' }, { name: 'p1' }],
+          labels: (scenario.labels ?? ['kind/bug-fix', 'area/core', 'p1']).map(name => ({ name })),
         })
       } else if (path === '/api/v3/repos/acme/widget/pulls/17/requested_reviewers') {
         json(200, { users: scenario.requested ? [{ login: 'reviewer' }] : [], teams: [] })
       } else if (path === '/api/v3/repos/acme/widget/pulls/17/reviews?per_page=100') {
         json(200, scenario.reviewed ? [{ state: 'COMMENTED' }] : [])
-      } else if (path === '/api/v3/repos/acme/widget/issues/4' && scenario.issue === 'valid') {
-        json(200, { number: 4, state: 'open', labels: [{ name: 'p1' }] })
-      } else if (path === '/api/v3/repos/acme/widget/issues/4' && scenario.issue === 'pull-request') {
-        json(200, { number: 4, pull_request: { url: 'https://api.github.com/repos/acme/widget/pulls/4' }, labels: [] })
-      } else if (path === '/api/v3/repos/acme/widget/issues/4' && scenario.issue === 'priority-mismatch') {
-        json(200, { number: 4, state: 'open', labels: [{ name: 'p0' }] })
-      } else if (path === '/api/v3/repos/acme/widget/issues/4' && scenario.issue === 'api-error') {
-        json(500, { message: 'Internal Server Error' })
-      } else if (path === '/api/v3/repos/acme/widget/issues/4') {
-        json(404, { message: 'Not Found' })
       } else {
         json(404, { message: 'Unexpected API path' })
       }
@@ -1169,43 +1213,30 @@ describe('Issue lifecycle workflow', () => {
         }
       }
 
-      scenario = { issue: 'valid', requested: true, reviewed: false }
-      const valid = await runAdapter()
-      expect(valid).toMatchObject({ code: 0, signal: null })
-      expect(valid.stdout).toContain('Issue policy 通过')
-      expect(valid.stdout + valid.stderr).not.toContain('workflow-test-token')
+      scenario = { requested: false, reviewed: true, body: '' }
+      const unreferenced = await runAdapter()
+      expect(unreferenced).toMatchObject({ code: 0, signal: null })
+      expect(unreferenced.stdout).toContain('Issue policy 通过')
+      expect(unreferenced.stdout + unreferenced.stderr).not.toContain('workflow-test-token')
 
-      scenario = { issue: 'priority-mismatch', requested: true, reviewed: false }
-      const priorityMismatch = await runAdapter()
-      expect(priorityMismatch.code).not.toBe(0)
-      expect(priorityMismatch.stdout + priorityMismatch.stderr).toContain('PR Priority 应为 p0')
+      scenario = { requested: false, reviewed: true, body: 'Fixes #4' }
+      const referenced = await runAdapter()
+      expect(referenced).toMatchObject({ code: 0, signal: null })
+      expect(referenced.stdout).toContain('Issue policy 通过')
 
-      scenario = { issue: 'api-error', requested: true, reviewed: false }
-      const apiError = await runAdapter()
-      expect(apiError.code).not.toBe(0)
-      expect(apiError.stderr).toContain('GET issues/4 returned HTTP 500')
-      expect(apiError.stdout + apiError.stderr).not.toContain('workflow-test-token')
-
-      scenario = { issue: 'missing', requested: true, reviewed: false }
-      const missingIssue = await runAdapter()
-      expect(missingIssue.code).not.toBe(0)
-      expect(missingIssue.stdout + missingIssue.stderr).toContain('#4 不是同仓库 Issue')
-
-      scenario = { issue: 'pull-request', requested: true, reviewed: false }
-      const pullRequestReference = await runAdapter()
-      expect(pullRequestReference.code).not.toBe(0)
-      expect(pullRequestReference.stdout + pullRequestReference.stderr).toContain('#4 不是同仓库 Issue')
-
-      scenario = { issue: 'valid', requested: false, reviewed: true }
-      const reviewActivatesPolicy = await runAdapter()
-      expect(reviewActivatesPolicy).toMatchObject({ code: 0, signal: null })
-      expect(reviewActivatesPolicy.stdout).toContain('Issue policy 通过')
+      scenario = {
+        requested: true,
+        labels: ['kind/feature', 'area/core', 'p2', 'p3'],
+      }
+      const multiplePriorities = await runAdapter()
+      expect(multiplePriorities.code).not.toBe(0)
+      expect(multiplePriorities.stdout + multiplePriorities.stderr).toContain('PR 最多有一个 p0–p3')
 
       for (const inactive of [
-        { issue: 'valid' as const, draft: true, requested: true, reviewed: false },
-        { issue: 'valid' as const, authorType: 'Bot', requested: true, reviewed: true },
-        { issue: 'valid' as const, authorType: 'App', requested: true, reviewed: false },
-        { issue: 'valid' as const, requested: false, reviewed: false },
+        { draft: true, requested: true, reviewed: false },
+        { authorType: 'Bot', requested: true, reviewed: true },
+        { authorType: 'App', requested: true, reviewed: false },
+        { requested: false, reviewed: false },
       ]) {
         scenario = inactive
         const skipped = await runAdapter()
@@ -1217,13 +1248,12 @@ describe('Issue lifecycle workflow', () => {
       expect(requests.length).toBeGreaterThan(0)
       for (const request of requests) {
         expect(request.path).toMatch(
-          /^\/api\/v3\/repos\/acme\/widget\/(?:pulls\/17(?:\/requested_reviewers|\/reviews\?per_page=100)?|issues\/4)$/,
+          /^\/api\/v3\/repos\/acme\/widget\/pulls\/17(?:\/requested_reviewers|\/reviews\?per_page=100)?$/,
         )
-        expect(request.path).not.toMatch(/graphql|projects|apps/i)
+        expect(request.path).not.toMatch(/issues|graphql|projects|apps/i)
         expect(request.authorization).toBe('Bearer workflow-test-token')
       }
-      const issueReads = requests.filter(request => request.path.endsWith('/issues/4')).length
-      expect(issueReads).toBe(6)
+      expect(requests.filter(request => request.path.includes('/issues/'))).toHaveLength(0)
     } finally {
       if (server.listening) await new Promise<void>((resolveClose, rejectClose) => {
         server.close((error) => {

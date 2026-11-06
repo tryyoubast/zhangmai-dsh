@@ -34,11 +34,11 @@ describe('PR preview workflow', () => {
     expect(workflow.permissions).toEqual({ contents: 'read' })
     expect(preview.permissions).toEqual({ contents: 'read' })
     expect(preview.steps.find(step => step.uses === 'actions/checkout@v6')?.with).toEqual({ 'persist-credentials': false })
-    expect(deploy.if).toBe("${{ vars.DSH_PREVIEW_DEPLOY_ENABLED == 'true' && github.event.pull_request.head.repo.full_name == github.repository }}")
+    expect(deploy.if).toBe("${{ vars.DSH_PREVIEW_DEPLOY_ENABLED == 'true' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]' }}")
     expect(JSON.stringify(preview)).not.toContain('secrets.')
     expect(JSON.stringify(preview)).not.toContain('pull-requests')
     const report = preview.steps.find(step => step.name === 'Report build-only validation')!
-    expect(report.if).toBe("${{ vars.DSH_PREVIEW_DEPLOY_ENABLED != 'true' || github.event.pull_request.head.repo.full_name != github.repository }}")
+    expect(report.if).toBe("${{ vars.DSH_PREVIEW_DEPLOY_ENABLED != 'true' || github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login == 'dependabot[bot]' }}")
     expect(report.run).toContain('validated build only')
     expect(report.run).toContain('no preview was deployed')
   })

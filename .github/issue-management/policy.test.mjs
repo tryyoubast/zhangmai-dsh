@@ -146,8 +146,6 @@ const reviewedPull = (labels) => ({
   reviewRequestCount: 1,
   reviewCount: 0,
   labels,
-  references: { all: [2], resolving: [], related: [2] },
-  issues: new Map([[2, { priority: null }]]),
 })
 
 test('keeps only Bug, Feature, and Task Issue templates with used frontmatter', () => {
@@ -171,6 +169,11 @@ test('keeps only Bug, Feature, and Task Issue templates with used frontmatter', 
     readFileSync(new URL('config.yml', directory), 'utf8'),
     'blank_issues_enabled: false\n',
   )
+})
+
+test('marks the Issue reference in the pull request template as optional', () => {
+  const source = readFileSync(new URL('../pull_request_template.md', import.meta.url), 'utf8')
+  assert.match(source, /Issue 引用可选/)
 })
 
 test('keeps Feature Issues limited to motivation and behavior', () => {
@@ -549,20 +552,18 @@ test('does not treat pull request references as Issue associations', () => {
   })
 })
 
-test('allows informational references without cross-object constraints', () => {
+test('validates PR labels without requiring Issue references', () => {
   const errors = validatePullRequest({
     isDraft: false,
     authorType: 'User',
     reviewRequestCount: 1,
     reviewCount: 0,
     labels: ['kind/cleanup', 'area/infra'],
-    references: { all: [4], resolving: [], related: [4] },
-    issues: new Map([[4, { type: 'Bug', priority: 'P0', labels: ['area/web'] }]]),
   })
   assert.deepEqual(errors, [])
 })
 
-test('enforces highest resolving Priority without Type or area synchronization', () => {
+test('does not derive PR Priority from Issue Project data', () => {
   const pull = {
     isDraft: false,
     authorType: 'User',
@@ -576,10 +577,13 @@ test('enforces highest resolving Priority without Type or area synchronization',
     ]),
   }
   assert.deepEqual(validatePullRequest(pull), [])
-  assert.ok(
-    validatePullRequest({ ...pull, labels: ['kind/cleanup', 'p2', 'area/web'] }).includes(
-      'PR Priority 应为 p0',
-    ),
+  assert.deepEqual(
+    validatePullRequest({ ...pull, labels: ['kind/cleanup', 'area/web'] }),
+    [],
+  )
+  assert.deepEqual(
+    validatePullRequest({ ...pull, labels: ['kind/cleanup', 'p2', 'area/web'] }),
+    [],
   )
 })
 
@@ -723,7 +727,7 @@ test('accepts exactly the canonical kinds with extensible areas', () => {
   }
 })
 
-test('rejects multiple, unknown, legacy, and Issue-source PR labels', () => {
+test('rejects multiple or unsupported kinds and ignores unrelated labels', () => {
   assert.ok(
     validatePullRequest(
       reviewedPull(['kind/feature', 'kind/doc', 'area/web']),
@@ -734,40 +738,23 @@ test('rejects multiple, unknown, legacy, and Issue-source PR labels', () => {
       'PR 含不支持的 kind/*：kind/experimental',
     ),
   )
-  for (const label of legacyLabels) {
-    assert.ok(
-      validatePullRequest(reviewedPull(['kind/feature', 'area/web', label])).some((error) =>
-        error.startsWith('PR 含旧版标签：'),
-      ),
-      label,
-    )
-  }
-  assert.ok(
-    validatePullRequest(
-      reviewedPull(['kind/feature', 'area/web', 'source/internal-pr']),
-    ).includes('source/* 仅用于 Issue：source/internal-pr'),
+  assert.ok(validatePullRequest(reviewedPull(['kind/bug', 'area/web'])).some((error) => error.includes('kind/')))
+  assert.deepEqual(
+    validatePullRequest(reviewedPull(['kind/feature', 'area/web', 'source/internal-pr', 'cleanup'])),
+    [],
   )
 })
 
-test('allows missing Priority only when resolving Issues are also unprioritized', () => {
-  const pull = {
-    isDraft: false,
-    authorType: 'User',
-    reviewRequestCount: 1,
-    reviewCount: 0,
-    labels: ['kind/feature', 'area/web'],
-    references: { all: [2], resolving: [2], related: [] },
-    issues: new Map([[2, { priority: null }]]),
-  }
+test('allows zero or one lowercase Priority label', () => {
+  const pull = reviewedPull(['kind/feature', 'area/web'])
   assert.deepEqual(validatePullRequest(pull), [])
-  assert.ok(
-    validatePullRequest({ ...pull, issues: new Map([[2, { priority: 'P2' }]]) }).includes(
-      'PR Priority 应为 p2',
-    ),
+  assert.deepEqual(
+    validatePullRequest({ ...pull, labels: [...pull.labels, 'p2'] }),
+    [],
   )
   assert.ok(
-    validatePullRequest({ ...pull, labels: [...pull.labels, 'p2'] }).includes(
-      '有 Priority 的解决型 PR 要求每个被解决 Issue 都设置 Priority',
+    validatePullRequest({ ...pull, labels: [...pull.labels, 'p2', 'p3'] }).includes(
+      'PR 最多有一个 p0–p3，当前为 2',
     ),
   )
 })

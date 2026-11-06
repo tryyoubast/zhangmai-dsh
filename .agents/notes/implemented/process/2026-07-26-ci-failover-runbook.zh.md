@@ -32,7 +32,7 @@ Status: implemented
 
 1. 仓库 **Settings → Secrets and variables → Actions → Variables → New repository variable**：名称 `DSH_CI_FAILOVER_LINUX`（Linux 池故障）或 `DSH_CI_FAILOVER_WINDOWS`（Windows 池故障），值 `selfhosted`。
 2. 重新触发必需作业，使其重新解析运行器池。已经为托管标签**排队**的作业不会重定向，也无法原地 re-run，因此对于本手册所述的无限排队故障，应取消卡住的运行并 re-run all jobs，或推送一个新提交；“Re-run failed jobs”只有在作业真正失败（而非仍在排队）时才有用。
-3. 切换到此完成。在 `selfhosted` 的 Linux 故障切换取值下，工作流还会把 `DSH_SNAPSHOT_MAX_CONCURRENCY` 降为 12，以限制共享虚拟机上的争抢，并跳过托管路径的 pnpm 缓存恢复，因为虚拟机的持久 store 会直接提供热安装。标准 `ubuntu-24.04` 与 `windows-2025` 覆盖率使用两个单 worker 插桩分区与一个豁免 worker；显式大型故障切换配置使用四个插桩分区与两个豁免 worker。Windows 开关没有并发或缓存分支；它只重定向原生 Windows 作业的运行器池。
+3. 切换到此完成。在 `selfhosted` 的 Linux 故障切换取值下，工作流还会把 `DSH_SNAPSHOT_MAX_CONCURRENCY` 降为 12，以限制共享虚拟机上的争抢，并跳过托管路径的 pnpm 缓存恢复，因为虚拟机的持久 store 会直接提供热安装。标准 `ubuntu-24.04` 与 `windows-2025` 覆盖率使用两个单 worker 插桩分区与一个豁免 worker；显式大型故障切换配置使用四个插桩分区与两个豁免 worker。Windows 开关还会选择覆盖率 worker 和分区数量，以及 gate/publint 并发：标准 Windows coverage 使用两个 worker、两个分区和 gate 并发度 1；大型故障切换 coverage 使用六个 worker、四个分区和 gate 并发度 3。标准 Windows 的 observational gate 并发度为 2、publint 并发度为 2；大型配置采用容量默认 gate 并发度和 publint 并发度 8。Windows 路径不会改变缓存行为。
 
 **Dependabot 例外。**两个开关的 `selfhosted` 腿都刻意排除 `dependabot[bot]`：自托管故障切换期间，Dependabot 拉取请求继续在托管池排队，而不是把依赖项提供的代码放到持久化虚拟机上执行。故障期间 Dependabot PR 持续排队是预期行为而非切换失败；托管池恢复后它会自行完成。`blacksmith` 取值下的分支不带此类排除，因为 Blacksmith 运行器是临时的（见 [blacksmith 故障切换支路笔记](2026-09-09-blacksmith-failover-leg.zh.md)）。
 

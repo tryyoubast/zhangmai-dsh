@@ -8,7 +8,6 @@ on:
 
 permissions:
   contents: read
-  issues: read
   pull-requests: read
 
 jobs:
@@ -28,7 +27,7 @@ jobs:
         run: |
           node --input-type=module <<'NODE'
           import fs from 'node:fs'
-          import { parseReferences, requiresPullRequestPolicy, validatePullRequest } from './.github/issue-management/policy.mjs'
+          import { requiresPullRequestPolicy, validatePullRequest } from './.github/issue-management/policy.mjs'
 
           const eventPath = process.env.GITHUB_EVENT_PATH
           const token = process.env.GITHUB_TOKEN
@@ -51,7 +50,7 @@ jobs:
           }
           const apiRoot = `${apiBase.origin}${apiBase.pathname.replace(/\/+$/, '')}`
           const repositoryPath = `repos/${encodeURIComponent(owner)}/${encodeURIComponent(repositoryName)}`
-          const request = async (path, allow404 = false) => {
+          const request = async (path) => {
             const response = await fetch(`${apiRoot}/${repositoryPath}/${path}`, {
               headers: {
                 Accept: 'application/vnd.github+json',
@@ -61,7 +60,6 @@ jobs:
               },
               signal: AbortSignal.timeout(15_000),
             })
-            if (allow404 && response.status === 404) return null
             if (!response.ok) throw new Error(`GET ${path} returned HTTP ${response.status}`)
             if (response.status === 204) return null
             return response.json()
@@ -85,48 +83,8 @@ jobs:
           if (!requiresPullRequestPolicy(policyContext)) {
             process.stdout.write('PR 尚未进入 Issue policy 强制范围。\n')
           } else {
-            const references = parseReferences({ body: pull.body ?? '', repository })
-            const issues = new Map()
-            const issueLabelErrors = []
-            const validPriorities = new Set(['p0', 'p1', 'p2', 'p3'])
-            for (const number of references.all) {
-              const issue = await request(`issues/${number}`, true)
-              if (!issue || issue.pull_request) continue
-              const labels = issue.labels.map((label) => label.name)
-              const priorityLabels = labels.filter((label) => /^p\d+$/i.test(label))
-              const canonicalPriorityLabels = priorityLabels.filter((label) => validPriorities.has(label))
-              if (references.resolving.includes(number)) {
-                const invalidIssuePriorities = priorityLabels.filter((label) => !validPriorities.has(label))
-                if (invalidIssuePriorities.length > 0) {
-                  issueLabelErrors.push(`#${number} 含不支持的 Priority 标签：${invalidIssuePriorities.join(', ')}`)
-                }
-                if (canonicalPriorityLabels.length > 1) {
-                  issueLabelErrors.push(`#${number} 最多只能有一个 p0–p3 Priority 标签`)
-                }
-              }
-              issues.set(number, {
-                priority: canonicalPriorityLabels.length === 1 ? canonicalPriorityLabels[0] : null,
-              })
-            }
-
             const labels = pull.labels.map((label) => label.name)
-            const invalidPriorities = labels.filter((label) => /^p\d+$/i.test(label) && !validPriorities.has(label))
-            const noncanonicalPriorities = labels.filter((label) => /^P[0-3]$/.test(label))
-            const errors = [
-              ...validatePullRequest({
-                ...policyContext,
-                labels,
-                references,
-                issues,
-              }),
-              ...issueLabelErrors,
-              ...(invalidPriorities.length > 0
-                ? [`PR 含不支持的 Priority 标签：${invalidPriorities.join(', ')}`]
-                : []),
-              ...(noncanonicalPriorities.length > 0
-                ? [`PR Priority 标签必须使用小写 p0–p3：${noncanonicalPriorities.join(', ')}`]
-                : []),
-            ]
+            const errors = validatePullRequest({ ...policyContext, labels })
             if (errors.length > 0) {
               for (const error of errors.slice(0, 20)) {
                 const safe = error.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A').replace(/:/g, '%3A').replace(/,/g, '%2C')

@@ -2,6 +2,12 @@
   "name": "@deepseek-ai/dsh-api-novel-authoring-http",
   "description": "Framework-neutral HTTP boundary for multi-user novel authoring",
   "version": "0.1.5-rc.2",
+  "publishConfig": { "access": "public" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "packages/api/novel-authoring-http"
+  },
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
@@ -18,5 +24,11 @@
   "dependencies": {
     "@deepseek-ai/dsh-novel-authoring": "workspace:^",
     "@deepseek-ai/dsh-user-auth": "workspace:^"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "workspace:^"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:^"
   }
 }
