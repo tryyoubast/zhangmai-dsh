@@ -63,6 +63,8 @@ kind: "package-library"
 
 `validateNovelGenerationAdapterResult()` 校验后始终返回 `records` 与 `proposals` 两个数组；省略的数组归一为空数组。物化只分派共享类型守卫接受的目标类型。结果仓库在进入普通请求事务或已有幂等事务前，校验工作区和 agent 身份。
 
+本包不发布不变量伴生模块，因为草稿归属、幂等性及发布条件由创作服务及其 Repository 事务直接保证。
+
 </details>
 
 -----

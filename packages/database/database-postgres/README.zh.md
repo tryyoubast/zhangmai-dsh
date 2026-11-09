@@ -84,6 +84,8 @@ Worker 只能在绑定工作区中写草稿实体和草稿版本。审核者先�
 
 框架无关的认证路由位于 [`@deepseek-ai/dsh-user-auth`](../../identity/user-auth/README.zh.md)。本包提供这些路由使用的 PostgreSQL Store 和表，但不负责 HTTP 路由、Cookie、JWT 签发、Redis 限流或邮件发送。
 
+本包不发布不变量伴生模块，因为数据库一致性由所属操作中的 schema 约束、迁移校验和及连接角色检查直接保证。
+
 </details>
 
 -----

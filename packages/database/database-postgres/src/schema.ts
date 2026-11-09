@@ -19,6 +19,67 @@ import { sql } from 'drizzle-orm'
 
 const instant = (name: string) => timestamp(name, { withTimezone: true, mode: 'date' })
 
+const jsonAttributes = (name: string) => jsonb(name).$type<Record<string, unknown>>().notNull().default({})
+
+// Factories allocate fresh builders because Drizzle binds each instance to one table.
+const oneTimeTokenColumns = () => ({
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').notNull().references(() => users.id),
+  tokenHash: text('token_hash').notNull().unique(),
+  expiresAt: instant('expires_at').notNull(),
+  consumedAt: instant('consumed_at'),
+  createdAt: instant('created_at').notNull().defaultNow(),
+})
+
+const attributionColumns = () => ({
+  createdByUserId: uuid('created_by_user_id').notNull().references(() => users.id),
+  sourceGenerationRunId: uuid('source_generation_run_id'),
+  sourceIdempotencyKey: text('source_idempotency_key'),
+  createdAt: instant('created_at').notNull().defaultNow(),
+})
+
+const lifecycleColumns = () => ({
+  createdAt: instant('created_at').notNull().defaultNow(),
+  updatedAt: instant('updated_at').notNull().defaultNow(),
+  deletedAt: instant('deleted_at'),
+})
+
+const draftVersionColumns = () => ({
+  versionNo: integer('version_no').notNull(),
+  status: text('status').notNull().default('draft'),
+  contentJsonb: jsonb('content_jsonb').$type<Record<string, unknown>>().notNull(),
+  sourceType: text('source_type').notNull(),
+  sourceId: uuid('source_id'),
+  ...attributionColumns(),
+})
+
+const draftAttributesColumns = () => ({
+  status: text('status').notNull().default('draft'),
+  attributesJsonb: jsonAttributes('attributes_jsonb'),
+  attributesSchemaVersion: integer('attributes_schema_version').notNull().default(1),
+  currentVersionNo: integer('current_version_no').notNull().default(1),
+})
+
+const chapterLifecycleColumns = () => ({
+  status: text('status').notNull().default('draft'),
+  currentVersionNo: integer('current_version_no').notNull().default(1),
+  ...attributionColumns(),
+  updatedAt: instant('updated_at').notNull().defaultNow(),
+  deletedAt: instant('deleted_at'),
+})
+
+const namedDraftColumns = () => ({
+  id: uuid('id').defaultRandom().primaryKey(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
+  novelId: uuid('novel_id').notNull().references(() => novels.id),
+  name: text('name').notNull(),
+  summary: text('summary'),
+  ...draftAttributesColumns(),
+  ...attributionColumns(),
+  updatedAt: instant('updated_at').notNull().defaultNow(),
+  deletedAt: instant('deleted_at'),
+})
+
 /** Authentication schema containing users and hashed credential material. */
 export const authSchema = pgSchema('auth')
 /** Workspace ownership and membership schema used by tenant access policies. */
@@ -42,9 +103,7 @@ export const users = authSchema.table('users', {
   lockedUntil: instant('locked_until'),
   passwordChangedAt: instant('password_changed_at').notNull(),
   lastLoginAt: instant('last_login_at'),
-  createdAt: instant('created_at').notNull().defaultNow(),
-  updatedAt: instant('updated_at').notNull().defaultNow(),
-  deletedAt: instant('deleted_at'),
+  ...lifecycleColumns(),
 })
 
 /** Hashed browser or official-client session credentials with expiry and revocation metadata. */
@@ -82,22 +141,12 @@ export const refreshTokens = authSchema.table('refresh_tokens', {
 
 /** Hashed one-time email verification tokens with expiry and consumption timestamps. */
 export const emailVerificationTokens = authSchema.table('email_verification_tokens', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  userId: uuid('user_id').notNull().references(() => users.id),
-  tokenHash: text('token_hash').notNull().unique(),
-  expiresAt: instant('expires_at').notNull(),
-  consumedAt: instant('consumed_at'),
-  createdAt: instant('created_at').notNull().defaultNow(),
+  ...oneTimeTokenColumns(),
 })
 
 /** Hashed one-time password reset tokens with expiry and consumption timestamps. */
 export const passwordResetTokens = authSchema.table('password_reset_tokens', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  userId: uuid('user_id').notNull().references(() => users.id),
-  tokenHash: text('token_hash').notNull().unique(),
-  expiresAt: instant('expires_at').notNull(),
-  consumedAt: instant('consumed_at'),
-  createdAt: instant('created_at').notNull().defaultNow(),
+  ...oneTimeTokenColumns(),
 })
 
 /** Tenant records with an owning user and lifecycle status; membership is stored separately. */
@@ -106,9 +155,7 @@ export const workspaces = appSchema.table('workspaces', {
   ownerUserId: uuid('owner_user_id').notNull().references(() => users.id),
   name: text('name').notNull(),
   status: text('status').notNull(),
-  createdAt: instant('created_at').notNull().defaultNow(),
-  updatedAt: instant('updated_at').notNull().defaultNow(),
-  deletedAt: instant('deleted_at'),
+  ...lifecycleColumns(),
 }, table => [
   index('workspaces_owner_idx').on(table.ownerUserId),
 ])
@@ -125,7 +172,7 @@ export const workspaceMembers = appSchema.table('workspace_members', {
   index('workspace_members_user_idx').on(table.userId),
 ])
 
-const jsonAttributes = (name: string) => jsonb(name).$type<Record<string, unknown>>().notNull().default({})
+
 
 /** Workspace-owned novel metadata with versioned JSON attributes and creator attribution. */
 export const novels = novelSchema.table('novels', {
@@ -136,30 +183,14 @@ export const novels = novelSchema.table('novels', {
   attributesJsonb: jsonAttributes('attributes_jsonb'),
   attributesSchemaVersion: integer('attributes_schema_version').notNull().default(1),
   createdByUserId: uuid('created_by_user_id').notNull().references(() => users.id),
-  createdAt: instant('created_at').notNull().defaultNow(),
-  updatedAt: instant('updated_at').notNull().defaultNow(),
-  deletedAt: instant('deleted_at'),
+  ...lifecycleColumns(),
 }, table => [
   unique('novels_workspace_id_id_key').on(table.workspaceId, table.id),
 ])
 
 /** Novel character drafts and published state with generation provenance and retry keys. */
 export const characters = novelSchema.table('characters', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
-  novelId: uuid('novel_id').notNull().references(() => novels.id),
-  name: text('name').notNull(),
-  summary: text('summary'),
-  status: text('status').notNull().default('draft'),
-  attributesJsonb: jsonAttributes('attributes_jsonb'),
-  attributesSchemaVersion: integer('attributes_schema_version').notNull().default(1),
-  currentVersionNo: integer('current_version_no').notNull().default(1),
-  createdByUserId: uuid('created_by_user_id').notNull().references(() => users.id),
-  sourceGenerationRunId: uuid('source_generation_run_id'),
-  sourceIdempotencyKey: text('source_idempotency_key'),
-  createdAt: instant('created_at').notNull().defaultNow(),
-  updatedAt: instant('updated_at').notNull().defaultNow(),
-  deletedAt: instant('deleted_at'),
+  ...namedDraftColumns(),
 }, table => [
   uniqueIndex('characters_workspace_idempotency_idx').on(table.workspaceId, table.sourceIdempotencyKey),
   index('novel_characters_context_search_idx').using('gin', sql`to_tsvector('simple', left(${table.name} || E'\\n' || coalesce(${table.summary}, '') || E'\\n' || ${table.attributesJsonb}::text, 16384))`),
@@ -184,15 +215,7 @@ export const characterVersions = novelSchema.table('character_versions', {
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
   novelId: uuid('novel_id').notNull(),
   characterId: uuid('character_id').notNull(),
-  versionNo: integer('version_no').notNull(),
-  status: text('status').notNull().default('draft'),
-  contentJsonb: jsonb('content_jsonb').$type<Record<string, unknown>>().notNull(),
-  sourceType: text('source_type').notNull(),
-  sourceId: uuid('source_id'),
-  createdByUserId: uuid('created_by_user_id').notNull().references(() => users.id),
-  sourceGenerationRunId: uuid('source_generation_run_id'),
-  sourceIdempotencyKey: text('source_idempotency_key'),
-  createdAt: instant('created_at').notNull().defaultNow(),
+  ...draftVersionColumns(),
 }, table => [
   uniqueIndex('character_versions_character_no_idx').on(table.characterId, table.versionNo),
   uniqueIndex('character_versions_workspace_idempotency_idx').on(table.workspaceId, table.sourceIdempotencyKey),
@@ -212,21 +235,7 @@ export const characterVersions = novelSchema.table('character_versions', {
 
 /** Novel skill records with lifecycle state, current version, and generation provenance. */
 export const skills = novelSchema.table('skills', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
-  novelId: uuid('novel_id').notNull().references(() => novels.id),
-  name: text('name').notNull(),
-  summary: text('summary'),
-  status: text('status').notNull().default('draft'),
-  attributesJsonb: jsonAttributes('attributes_jsonb'),
-  attributesSchemaVersion: integer('attributes_schema_version').notNull().default(1),
-  currentVersionNo: integer('current_version_no').notNull().default(1),
-  createdByUserId: uuid('created_by_user_id').notNull().references(() => users.id),
-  sourceGenerationRunId: uuid('source_generation_run_id'),
-  sourceIdempotencyKey: text('source_idempotency_key'),
-  createdAt: instant('created_at').notNull().defaultNow(),
-  updatedAt: instant('updated_at').notNull().defaultNow(),
-  deletedAt: instant('deleted_at'),
+  ...namedDraftColumns(),
 }, table => [
   uniqueIndex('skills_workspace_idempotency_idx').on(table.workspaceId, table.sourceIdempotencyKey),
   index('novel_skills_context_search_idx').using('gin', sql`to_tsvector('simple', left(${table.name} || E'\\n' || coalesce(${table.summary}, '') || E'\\n' || ${table.attributesJsonb}::text, 16384))`),
@@ -251,15 +260,7 @@ export const skillVersions = novelSchema.table('skill_versions', {
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
   novelId: uuid('novel_id').notNull(),
   skillId: uuid('skill_id').notNull(),
-  versionNo: integer('version_no').notNull(),
-  status: text('status').notNull().default('draft'),
-  contentJsonb: jsonb('content_jsonb').$type<Record<string, unknown>>().notNull(),
-  sourceType: text('source_type').notNull(),
-  sourceId: uuid('source_id'),
-  createdByUserId: uuid('created_by_user_id').notNull().references(() => users.id),
-  sourceGenerationRunId: uuid('source_generation_run_id'),
-  sourceIdempotencyKey: text('source_idempotency_key'),
-  createdAt: instant('created_at').notNull().defaultNow(),
+  ...draftVersionColumns(),
 }, table => [
   uniqueIndex('skill_versions_skill_no_idx').on(table.skillId, table.versionNo),
   uniqueIndex('skill_versions_workspace_idempotency_idx').on(table.workspaceId, table.sourceIdempotencyKey),
@@ -279,21 +280,7 @@ export const skillVersions = novelSchema.table('skill_versions', {
 
 /** Novel location records with lifecycle state and workspace-scoped generation retry keys. */
 export const locations = novelSchema.table('locations', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
-  novelId: uuid('novel_id').notNull().references(() => novels.id),
-  name: text('name').notNull(),
-  summary: text('summary'),
-  status: text('status').notNull().default('draft'),
-  attributesJsonb: jsonAttributes('attributes_jsonb'),
-  attributesSchemaVersion: integer('attributes_schema_version').notNull().default(1),
-  currentVersionNo: integer('current_version_no').notNull().default(1),
-  createdByUserId: uuid('created_by_user_id').notNull().references(() => users.id),
-  sourceGenerationRunId: uuid('source_generation_run_id'),
-  sourceIdempotencyKey: text('source_idempotency_key'),
-  createdAt: instant('created_at').notNull().defaultNow(),
-  updatedAt: instant('updated_at').notNull().defaultNow(),
-  deletedAt: instant('deleted_at'),
+  ...namedDraftColumns(),
 }, table => [
   index('novel_locations_workspace_novel_idx').on(table.workspaceId, table.novelId, table.status),
   index('novel_locations_context_search_idx').using('gin', sql`to_tsvector('simple', left(${table.name} || E'\\n' || coalesce(${table.summary}, '') || E'\\n' || ${table.attributesJsonb}::text, 16384))`),
@@ -315,21 +302,7 @@ export const locations = novelSchema.table('locations', {
 
 /** Novel faction records with lifecycle state and workspace-scoped generation retry keys. */
 export const factions = novelSchema.table('factions', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
-  novelId: uuid('novel_id').notNull().references(() => novels.id),
-  name: text('name').notNull(),
-  summary: text('summary'),
-  status: text('status').notNull().default('draft'),
-  attributesJsonb: jsonAttributes('attributes_jsonb'),
-  attributesSchemaVersion: integer('attributes_schema_version').notNull().default(1),
-  currentVersionNo: integer('current_version_no').notNull().default(1),
-  createdByUserId: uuid('created_by_user_id').notNull().references(() => users.id),
-  sourceGenerationRunId: uuid('source_generation_run_id'),
-  sourceIdempotencyKey: text('source_idempotency_key'),
-  createdAt: instant('created_at').notNull().defaultNow(),
-  updatedAt: instant('updated_at').notNull().defaultNow(),
-  deletedAt: instant('deleted_at'),
+  ...namedDraftColumns(),
 }, table => [
   index('novel_factions_workspace_novel_idx').on(table.workspaceId, table.novelId, table.status),
   index('novel_factions_context_search_idx').using('gin', sql`to_tsvector('simple', left(${table.name} || E'\\n' || coalesce(${table.summary}, '') || E'\\n' || ${table.attributesJsonb}::text, 16384))`),
@@ -351,21 +324,7 @@ export const factions = novelSchema.table('factions', {
 
 /** Novel item records with lifecycle state and workspace-scoped generation retry keys. */
 export const items = novelSchema.table('items', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
-  novelId: uuid('novel_id').notNull().references(() => novels.id),
-  name: text('name').notNull(),
-  summary: text('summary'),
-  status: text('status').notNull().default('draft'),
-  attributesJsonb: jsonAttributes('attributes_jsonb'),
-  attributesSchemaVersion: integer('attributes_schema_version').notNull().default(1),
-  currentVersionNo: integer('current_version_no').notNull().default(1),
-  createdByUserId: uuid('created_by_user_id').notNull().references(() => users.id),
-  sourceGenerationRunId: uuid('source_generation_run_id'),
-  sourceIdempotencyKey: text('source_idempotency_key'),
-  createdAt: instant('created_at').notNull().defaultNow(),
-  updatedAt: instant('updated_at').notNull().defaultNow(),
-  deletedAt: instant('deleted_at'),
+  ...namedDraftColumns(),
 }, table => [
   index('novel_items_workspace_novel_idx').on(table.workspaceId, table.novelId, table.status),
   index('novel_items_context_search_idx').using('gin', sql`to_tsvector('simple', left(${table.name} || E'\\n' || coalesce(${table.summary}, '') || E'\\n' || ${table.attributesJsonb}::text, 16384))`),
@@ -387,21 +346,7 @@ export const items = novelSchema.table('items', {
 
 /** Novel storyline records with lifecycle state and workspace-scoped generation retry keys. */
 export const storylines = novelSchema.table('storylines', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
-  novelId: uuid('novel_id').notNull().references(() => novels.id),
-  name: text('name').notNull(),
-  summary: text('summary'),
-  status: text('status').notNull().default('draft'),
-  attributesJsonb: jsonAttributes('attributes_jsonb'),
-  attributesSchemaVersion: integer('attributes_schema_version').notNull().default(1),
-  currentVersionNo: integer('current_version_no').notNull().default(1),
-  createdByUserId: uuid('created_by_user_id').notNull().references(() => users.id),
-  sourceGenerationRunId: uuid('source_generation_run_id'),
-  sourceIdempotencyKey: text('source_idempotency_key'),
-  createdAt: instant('created_at').notNull().defaultNow(),
-  updatedAt: instant('updated_at').notNull().defaultNow(),
-  deletedAt: instant('deleted_at'),
+  ...namedDraftColumns(),
 }, table => [
   index('novel_storylines_workspace_novel_idx').on(table.workspaceId, table.novelId, table.status),
   index('novel_storylines_context_search_idx').using('gin', sql`to_tsvector('simple', left(${table.name} || E'\\n' || coalesce(${table.summary}, '') || E'\\n' || ${table.attributesJsonb}::text, 16384))`),
@@ -427,15 +372,7 @@ export const locationVersions = novelSchema.table('location_versions', {
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
   novelId: uuid('novel_id').notNull(),
   locationId: uuid('location_id').notNull(),
-  versionNo: integer('version_no').notNull(),
-  status: text('status').notNull().default('draft'),
-  contentJsonb: jsonb('content_jsonb').$type<Record<string, unknown>>().notNull(),
-  sourceType: text('source_type').notNull(),
-  sourceId: uuid('source_id'),
-  createdByUserId: uuid('created_by_user_id').notNull().references(() => users.id),
-  sourceGenerationRunId: uuid('source_generation_run_id'),
-  sourceIdempotencyKey: text('source_idempotency_key'),
-  createdAt: instant('created_at').notNull().defaultNow(),
+  ...draftVersionColumns(),
 }, table => [
   uniqueIndex('location_versions_workspace_entity_no_idx').on(table.workspaceId, table.locationId, table.versionNo),
   uniqueIndex('location_versions_workspace_idempotency_idx').on(table.workspaceId, table.sourceIdempotencyKey),
@@ -458,15 +395,7 @@ export const factionVersions = novelSchema.table('faction_versions', {
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
   novelId: uuid('novel_id').notNull(),
   factionId: uuid('faction_id').notNull(),
-  versionNo: integer('version_no').notNull(),
-  status: text('status').notNull().default('draft'),
-  contentJsonb: jsonb('content_jsonb').$type<Record<string, unknown>>().notNull(),
-  sourceType: text('source_type').notNull(),
-  sourceId: uuid('source_id'),
-  createdByUserId: uuid('created_by_user_id').notNull().references(() => users.id),
-  sourceGenerationRunId: uuid('source_generation_run_id'),
-  sourceIdempotencyKey: text('source_idempotency_key'),
-  createdAt: instant('created_at').notNull().defaultNow(),
+  ...draftVersionColumns(),
 }, table => [
   uniqueIndex('faction_versions_workspace_entity_no_idx').on(table.workspaceId, table.factionId, table.versionNo),
   uniqueIndex('faction_versions_workspace_idempotency_idx').on(table.workspaceId, table.sourceIdempotencyKey),
@@ -489,15 +418,7 @@ export const itemVersions = novelSchema.table('item_versions', {
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
   novelId: uuid('novel_id').notNull(),
   itemId: uuid('item_id').notNull(),
-  versionNo: integer('version_no').notNull(),
-  status: text('status').notNull().default('draft'),
-  contentJsonb: jsonb('content_jsonb').$type<Record<string, unknown>>().notNull(),
-  sourceType: text('source_type').notNull(),
-  sourceId: uuid('source_id'),
-  createdByUserId: uuid('created_by_user_id').notNull().references(() => users.id),
-  sourceGenerationRunId: uuid('source_generation_run_id'),
-  sourceIdempotencyKey: text('source_idempotency_key'),
-  createdAt: instant('created_at').notNull().defaultNow(),
+  ...draftVersionColumns(),
 }, table => [
   uniqueIndex('item_versions_workspace_entity_no_idx').on(table.workspaceId, table.itemId, table.versionNo),
   uniqueIndex('item_versions_workspace_idempotency_idx').on(table.workspaceId, table.sourceIdempotencyKey),
@@ -520,15 +441,7 @@ export const storylineVersions = novelSchema.table('storyline_versions', {
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
   novelId: uuid('novel_id').notNull(),
   storylineId: uuid('storyline_id').notNull(),
-  versionNo: integer('version_no').notNull(),
-  status: text('status').notNull().default('draft'),
-  contentJsonb: jsonb('content_jsonb').$type<Record<string, unknown>>().notNull(),
-  sourceType: text('source_type').notNull(),
-  sourceId: uuid('source_id'),
-  createdByUserId: uuid('created_by_user_id').notNull().references(() => users.id),
-  sourceGenerationRunId: uuid('source_generation_run_id'),
-  sourceIdempotencyKey: text('source_idempotency_key'),
-  createdAt: instant('created_at').notNull().defaultNow(),
+  ...draftVersionColumns(),
 }, table => [
   uniqueIndex('storyline_versions_workspace_entity_no_idx').on(table.workspaceId, table.storylineId, table.versionNo),
   uniqueIndex('storyline_versions_workspace_idempotency_idx').on(table.workspaceId, table.sourceIdempotencyKey),
@@ -551,15 +464,7 @@ export const entityRelationVersions = novelSchema.table('entity_relation_version
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
   novelId: uuid('novel_id').notNull(),
   relationId: uuid('relation_id').notNull(),
-  versionNo: integer('version_no').notNull(),
-  status: text('status').notNull().default('draft'),
-  contentJsonb: jsonb('content_jsonb').$type<Record<string, unknown>>().notNull(),
-  sourceType: text('source_type').notNull(),
-  sourceId: uuid('source_id'),
-  createdByUserId: uuid('created_by_user_id').notNull().references(() => users.id),
-  sourceGenerationRunId: uuid('source_generation_run_id'),
-  sourceIdempotencyKey: text('source_idempotency_key'),
-  createdAt: instant('created_at').notNull().defaultNow(),
+  ...draftVersionColumns(),
 }, table => [
   uniqueIndex('entity_relation_versions_workspace_entity_no_idx')
     .on(table.workspaceId, table.relationId, table.versionNo),
@@ -585,15 +490,9 @@ export const characterSkills = novelSchema.table('character_skills', {
   characterId: uuid('character_id').notNull(),
   skillId: uuid('skill_id').notNull(),
   relationType: text('relation_type').notNull(),
-  status: text('status').notNull().default('draft'),
-  attributesJsonb: jsonAttributes('attributes_jsonb'),
-  attributesSchemaVersion: integer('attributes_schema_version').notNull().default(1),
-  currentVersionNo: integer('current_version_no').notNull().default(1),
+  ...draftAttributesColumns(),
   sourceVersionNo: integer('source_version_no'),
-  createdByUserId: uuid('created_by_user_id').notNull().references(() => users.id),
-  sourceGenerationRunId: uuid('source_generation_run_id'),
-  sourceIdempotencyKey: text('source_idempotency_key'),
-  createdAt: instant('created_at').notNull().defaultNow(),
+  ...attributionColumns(),
   updatedAt: instant('updated_at').notNull().defaultNow(),
   deletedAt: instant('deleted_at'),
 }, table => [
@@ -625,15 +524,7 @@ export const characterSkillVersions = novelSchema.table('character_skill_version
   workspaceId: uuid('workspace_id').notNull(),
   novelId: uuid('novel_id').notNull(),
   characterSkillId: uuid('character_skill_id').notNull(),
-  versionNo: integer('version_no').notNull(),
-  status: text('status').notNull().default('draft'),
-  contentJsonb: jsonb('content_jsonb').$type<Record<string, unknown>>().notNull(),
-  sourceType: text('source_type').notNull(),
-  sourceId: uuid('source_id'),
-  createdByUserId: uuid('created_by_user_id').notNull().references(() => users.id),
-  sourceGenerationRunId: uuid('source_generation_run_id'),
-  sourceIdempotencyKey: text('source_idempotency_key'),
-  createdAt: instant('created_at').notNull().defaultNow(),
+  ...draftVersionColumns(),
 }, table => [
   unique('character_skill_versions_workspace_entity_version_key')
     .on(table.workspaceId, table.characterSkillId, table.versionNo),
@@ -673,10 +564,7 @@ export const entityRelations = novelSchema.table('entity_relations', {
   sourceVersionNo: integer('source_version_no'),
   validFrom: instant('valid_from'),
   validTo: instant('valid_to'),
-  createdByUserId: uuid('created_by_user_id').notNull().references(() => users.id),
-  sourceGenerationRunId: uuid('source_generation_run_id'),
-  sourceIdempotencyKey: text('source_idempotency_key'),
-  createdAt: instant('created_at').notNull().defaultNow(),
+  ...attributionColumns(),
   updatedAt: instant('updated_at').notNull().defaultNow(),
   deletedAt: instant('deleted_at'),
 }, table => [
@@ -706,14 +594,7 @@ export const outlines = novelSchema.table('outlines', {
   novelId: uuid('novel_id').notNull(),
   title: text('title').notNull(),
   contentJsonb: jsonb('content_jsonb').$type<Record<string, unknown>>().notNull().default({}),
-  status: text('status').notNull().default('draft'),
-  currentVersionNo: integer('current_version_no').notNull().default(1),
-  createdByUserId: uuid('created_by_user_id').notNull().references(() => users.id),
-  sourceGenerationRunId: uuid('source_generation_run_id'),
-  sourceIdempotencyKey: text('source_idempotency_key'),
-  createdAt: instant('created_at').notNull().defaultNow(),
-  updatedAt: instant('updated_at').notNull().defaultNow(),
-  deletedAt: instant('deleted_at'),
+  ...chapterLifecycleColumns(),
 }, table => [
   unique('outlines_workspace_id_id_key').on(table.workspaceId, table.id),
   foreignKey({
@@ -741,14 +622,7 @@ export const chapters = novelSchema.table('chapters', {
   chapterNo: integer('chapter_no').notNull(),
   title: text('title').notNull(),
   summary: text('summary'),
-  status: text('status').notNull().default('draft'),
-  currentVersionNo: integer('current_version_no').notNull().default(1),
-  createdByUserId: uuid('created_by_user_id').notNull().references(() => users.id),
-  sourceGenerationRunId: uuid('source_generation_run_id'),
-  sourceIdempotencyKey: text('source_idempotency_key'),
-  createdAt: instant('created_at').notNull().defaultNow(),
-  updatedAt: instant('updated_at').notNull().defaultNow(),
-  deletedAt: instant('deleted_at'),
+  ...chapterLifecycleColumns(),
 }, table => [
   unique('chapters_workspace_id_id_key').on(table.workspaceId, table.id),
   unique('chapters_workspace_novel_no_key').on(table.workspaceId, table.novelId, table.chapterNo),
@@ -788,10 +662,7 @@ export const chapterVersions = novelSchema.table('chapter_versions', {
   summary: text('summary'),
   sourceType: text('source_type').notNull(),
   sourceId: uuid('source_id'),
-  createdByUserId: uuid('created_by_user_id').notNull().references(() => users.id),
-  sourceGenerationRunId: uuid('source_generation_run_id'),
-  sourceIdempotencyKey: text('source_idempotency_key'),
-  createdAt: instant('created_at').notNull().defaultNow(),
+  ...attributionColumns(),
 }, table => [
   unique('chapter_versions_workspace_id_id_key').on(table.workspaceId, table.id),
   unique('chapter_versions_workspace_chapter_no_key').on(table.workspaceId, table.chapterId, table.versionNo),
@@ -833,9 +704,7 @@ export const chapterSummaries = novelSchema.table('chapter_summaries', {
   sourceGenerationRunId: uuid('source_generation_run_id'),
   sourceIdempotencyKey: text('source_idempotency_key'),
   createdByUserId: uuid('created_by_user_id').notNull().references(() => users.id),
-  createdAt: instant('created_at').notNull().defaultNow(),
-  updatedAt: instant('updated_at').notNull().defaultNow(),
-  deletedAt: instant('deleted_at'),
+  ...lifecycleColumns(),
 }, table => [
   unique('chapter_summaries_workspace_id_id_key').on(table.workspaceId, table.id),
   foreignKey({
@@ -869,16 +738,10 @@ export const storyFacts = novelSchema.table('story_facts', {
   novelId: uuid('novel_id').notNull(),
   factKey: text('fact_key').notNull(),
   statement: text('statement').notNull(),
-  status: text('status').notNull().default('draft'),
-  attributesJsonb: jsonAttributes('attributes_jsonb'),
-  attributesSchemaVersion: integer('attributes_schema_version').notNull().default(1),
-  currentVersionNo: integer('current_version_no').notNull().default(1),
+  ...draftAttributesColumns(),
   sourceChapterId: uuid('source_chapter_id'),
   sourceChapterVersionId: uuid('source_chapter_version_id'),
-  createdByUserId: uuid('created_by_user_id').notNull().references(() => users.id),
-  sourceGenerationRunId: uuid('source_generation_run_id'),
-  sourceIdempotencyKey: text('source_idempotency_key'),
-  createdAt: instant('created_at').notNull().defaultNow(),
+  ...attributionColumns(),
   updatedAt: instant('updated_at').notNull().defaultNow(),
   deletedAt: instant('deleted_at'),
 }, table => [
@@ -922,16 +785,10 @@ export const timelineEvents = novelSchema.table('timeline_events', {
   title: text('title').notNull(),
   description: text('description'),
   sequenceNo: integer('sequence_no'),
-  status: text('status').notNull().default('draft'),
-  attributesJsonb: jsonAttributes('attributes_jsonb'),
-  attributesSchemaVersion: integer('attributes_schema_version').notNull().default(1),
-  currentVersionNo: integer('current_version_no').notNull().default(1),
+  ...draftAttributesColumns(),
   sourceChapterId: uuid('source_chapter_id'),
   sourceChapterVersionId: uuid('source_chapter_version_id'),
-  createdByUserId: uuid('created_by_user_id').notNull().references(() => users.id),
-  sourceGenerationRunId: uuid('source_generation_run_id'),
-  sourceIdempotencyKey: text('source_idempotency_key'),
-  createdAt: instant('created_at').notNull().defaultNow(),
+  ...attributionColumns(),
   updatedAt: instant('updated_at').notNull().defaultNow(),
   deletedAt: instant('deleted_at'),
 }, table => [

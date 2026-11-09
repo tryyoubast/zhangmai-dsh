@@ -1,4 +1,5 @@
 /** Persist workspace-scoped novel drafts and review state; PostgreSQL owns publication and RLS enforcement. */
+import { persistedContextCandidate } from './context-candidate.ts'
 import { isDeepStrictEqual } from 'node:util'
 import {
   and,
@@ -31,6 +32,10 @@ import {
   type DshDatabase,
 } from '@deepseek-ai/dsh-database-postgres'
 import { canPerform, type AuthPrincipal } from '@deepseek-ai/dsh-user-auth'
+
+function assertWorkspace(principal: AuthPrincipal, workspaceId: string): void {
+  if (workspaceId !== principal.workspaceId) throw new Error('workspace context mismatch')
+}
 
 function requestContext(principal: AuthPrincipal): {
   userId: string
@@ -404,6 +409,13 @@ export class NovelAuthoringService {
     })
   }
 
+  private async readGenerationRunStatus(db: DshDatabase, workspaceId: string, generationRunId: string): Promise<GenerationRunStatus> {
+    const [run] = await db.select({ status: generationRuns.status }).from(generationRuns)
+      .where(and(eq(generationRuns.workspaceId, workspaceId), eq(generationRuns.id, generationRunId))).limit(1)
+    if (run === undefined) throw new Error('generation run was not found')
+    return run.status as GenerationRunStatus
+  }
+
   /**
    * Read a generation run status within the authenticated workspace.
    * @param input - Workspace and generation run whose status is requested.
@@ -416,12 +428,7 @@ export class NovelAuthoringService {
   }): Promise<GenerationRunStatus> {
     if (input.workspaceId !== this.principal.workspaceId) throw new Error('workspace context mismatch')
     return this.withContext(async (db) => {
-      const [run] = await db.select({ status: generationRuns.status })
-        .from(generationRuns)
-        .where(and(eq(generationRuns.workspaceId, input.workspaceId), eq(generationRuns.id, input.generationRunId)))
-        .limit(1)
-      if (run === undefined) throw new Error('generation run was not found')
-      return run.status as GenerationRunStatus
+      return this.readGenerationRunStatus(db, input.workspaceId, input.generationRunId)
     })
   }
 
@@ -442,12 +449,8 @@ export class NovelAuthoringService {
     assertGenerationWorker(this.principal)
     if (input.workspaceId !== this.principal.workspaceId) throw new Error('workspace context mismatch')
     await this.withContext(async (db) => {
-      const [run] = await db.select({ status: generationRuns.status })
-        .from(generationRuns)
-        .where(and(eq(generationRuns.workspaceId, input.workspaceId), eq(generationRuns.id, input.generationRunId)))
-        .limit(1)
-      if (run === undefined) throw new Error('generation run was not found')
-      assertGenerationRunTransition(run.status as GenerationRunStatus, input.status)
+      const currentStatus = await this.readGenerationRunStatus(db, input.workspaceId, input.generationRunId)
+      assertGenerationRunTransition(currentStatus, input.status)
       if (input.errorSummary !== undefined && input.errorSummary.length > 512) {
         throw new Error('generation run error summary is too long')
       }
@@ -557,7 +560,7 @@ export class NovelAuthoringService {
    */
   async createEntityRelationDraft(input: EntityRelationDraftInput): Promise<string> {
     assertGenerationWorker(this.principal)
-    this.assertWorkspace(input.workspaceId)
+    assertWorkspace(this.principal, input.workspaceId)
     return this.withContext(async (db) => {
       const [relation] = await db.insert(entityRelations).values({
         workspaceId: input.workspaceId,
@@ -605,7 +608,7 @@ export class NovelAuthoringService {
    */
   async createCharacterSkillDraft(input: CharacterSkillDraftInput): Promise<string> {
     assertGenerationWorker(this.principal)
-    this.assertWorkspace(input.workspaceId)
+    assertWorkspace(this.principal, input.workspaceId)
     return this.withContext(async (db) => {
       const [link] = await db.insert(characterSkills).values({
         workspaceId: input.workspaceId,
@@ -647,7 +650,7 @@ export class NovelAuthoringService {
    */
   async createStoryFactDraft(input: StoryFactDraftInput): Promise<string> {
     assertGenerationWorker(this.principal)
-    this.assertWorkspace(input.workspaceId)
+    assertWorkspace(this.principal, input.workspaceId)
     return this.withContext(async (db) => {
       const [fact] = await db.insert(storyFacts).values({
         workspaceId: input.workspaceId,
@@ -690,7 +693,7 @@ export class NovelAuthoringService {
    */
   async createTimelineEventDraft(input: TimelineEventDraftInput): Promise<string> {
     assertGenerationWorker(this.principal)
-    this.assertWorkspace(input.workspaceId)
+    assertWorkspace(this.principal, input.workspaceId)
     return this.withContext(async (db) => {
       const [event] = await db.insert(timelineEvents).values({
         workspaceId: input.workspaceId,
@@ -738,7 +741,7 @@ export class NovelAuthoringService {
    */
   async createChapterSummaryDraft(input: ChapterSummaryDraftInput): Promise<string> {
     assertGenerationWorker(this.principal)
-    this.assertWorkspace(input.workspaceId)
+    assertWorkspace(this.principal, input.workspaceId)
     if (!/^[0-9a-f]{64}$/u.test(input.contentSha256)) throw new Error('summary SHA-256 must be a 64-character hexadecimal digest')
     return this.withContext(async (db) => {
       const [summary] = await db.insert(chapterSummaries).values({
@@ -827,7 +830,7 @@ export class NovelAuthoringService {
    */
   async createOutlineDraft(input: NamedEntityDraftInput): Promise<string> {
     assertGenerationWorker(this.principal)
-    this.assertWorkspace(input.workspaceId)
+    assertWorkspace(this.principal, input.workspaceId)
     return this.withContext(async (db) => {
       const [outline] = await db.insert(outlines).values({
         workspaceId: input.workspaceId,
@@ -862,7 +865,7 @@ export class NovelAuthoringService {
     table: typeof skills | typeof locations | typeof factions | typeof items | typeof storylines,
   ): Promise<string> {
     assertGenerationWorker(this.principal)
-    this.assertWorkspace(input.workspaceId)
+    assertWorkspace(this.principal, input.workspaceId)
     return this.withContext(async (db) => {
       const values = {
         workspaceId: input.workspaceId,
@@ -894,17 +897,8 @@ export class NovelAuthoringService {
     })
   }
 
-  private assertWorkspace(workspaceId: string): void {
-    if (workspaceId !== this.principal.workspaceId) throw new Error('workspace context mismatch')
-  }
-
   private withContext<T>(callback: (database: DshDatabase) => Promise<T>): Promise<T> {
-    return withRequestContext(this.database, {
-      userId: this.principal.userId,
-      workspaceId: this.principal.workspaceId,
-      actorType: this.principal.actorType,
-      ...(this.principal.agentPrincipalId === undefined ? {} : { agentPrincipalId: this.principal.agentPrincipalId }),
-    }, callback)
+    return withRequestContext(this.database, requestContext(this.principal), callback)
   }
 }
 
@@ -1421,7 +1415,7 @@ export class LongformAuthoringService {
    */
   async createChapterDraft(input: ChapterDraftInput): Promise<string> {
     assertGenerationWorker(this.principal)
-    this.assertWorkspace(input.workspaceId)
+    assertWorkspace(this.principal, input.workspaceId)
     return this.withContext(async (db) => {
       const [chapter] = await db.insert(chapters).values({
         workspaceId: input.workspaceId,
@@ -1462,7 +1456,7 @@ export class LongformAuthoringService {
    */
   async createChapterVersionDraft(input: ChapterVersionDraftInput): Promise<string> {
     assertGenerationWorker(this.principal)
-    this.assertWorkspace(input.workspaceId)
+    assertWorkspace(this.principal, input.workspaceId)
     validateChapterContentStorage(input)
     if (input.contentStorageKind === 'object_storage') {
       if (this.objectStorage === undefined) throw new Error('object storage is required for large chapter versions')
@@ -1520,7 +1514,7 @@ export class LongformAuthoringService {
     if (itemsInput.length === 0) return
     const uniqueItems = new Map<string, GenerationContextItemInput>()
     for (const item of itemsInput) {
-      this.assertWorkspace(item.workspaceId)
+      assertWorkspace(this.principal, item.workspaceId)
       if (item.excerpt.trim() === '') throw new Error('context excerpts are required for durable replay')
       const key = generationContextItemKey(item)
       const existing = uniqueItems.get(key)
@@ -1563,7 +1557,7 @@ export class LongformAuthoringService {
    */
   async selectAndRecordContext(input: GenerationContextSelectionInput): Promise<ContextCandidate[]> {
     assertGenerationWorker(this.principal)
-    this.assertWorkspace(input.workspaceId)
+    assertWorkspace(this.principal, input.workspaceId)
     return this.withContext(async (db) => {
       // One run gets one durable context set. The transaction advisory lock
       // closes the read/select/write race between multiple workers.
@@ -1575,19 +1569,7 @@ export class LongformAuthoringService {
         if (!isContextCandidateStatus(item.sourceStatus)) {
           throw new Error('persisted generation context snapshot has an invalid source status')
         }
-        return {
-          sourceType: item.sourceType,
-          sourceId: item.sourceId,
-          workspaceId: item.workspaceId,
-          novelId: item.novelId,
-          status: item.sourceStatus,
-          relevanceScore: 0,
-          recencyScore: 0,
-          excerptHash: item.excerptHash,
-          excerpt: item.excerpt,
-          tokenCount: item.tokenCount,
-          selectionReason: item.selectionReason,
-        }
+        return persistedContextCandidate({ ...item, excerpt: item.excerpt, sourceStatus: item.sourceStatus })
       }
       const existing = await db.select().from(generationContextItems).where(and(
         eq(generationContextItems.workspaceId, input.workspaceId),
@@ -1636,16 +1618,12 @@ export class LongformAuthoringService {
     novelId: string,
     generationRunId: string,
   ): Promise<readonly typeof generationContextItems.$inferSelect[]> {
-    this.assertWorkspace(workspaceId)
+    assertWorkspace(this.principal, workspaceId)
     return this.withContext(async db => db.select().from(generationContextItems).where(and(
       eq(generationContextItems.workspaceId, workspaceId),
       eq(generationContextItems.novelId, novelId),
       eq(generationContextItems.generationRunId, generationRunId),
     )).orderBy(asc(generationContextItems.rank)))
-  }
-
-  private assertWorkspace(workspaceId: string): void {
-    if (workspaceId !== this.principal.workspaceId) throw new Error('workspace context mismatch')
   }
 
   private withContext<T>(callback: (database: DshDatabase) => Promise<T>): Promise<T> {

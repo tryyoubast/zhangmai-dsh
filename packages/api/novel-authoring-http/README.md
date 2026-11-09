@@ -61,6 +61,8 @@ Worker proposal requests require a supported fixed `targetType`. Missing, empty,
 
 Route matching validates the segment count after removing empty path segments. Only matching routes supply workspace, novel, or proposal IDs to services; unmatched paths return `404 not_found`.
 
+No invariant companion is published because this stateless adapter validates requests and delegates persistence to its injected authoring services.
+
 </details>
 
 -----

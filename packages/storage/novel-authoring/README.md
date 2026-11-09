@@ -63,6 +63,8 @@ A generation request with `limit: 0` deliberately runs without context retrieval
 
 `PostgresNovelContextRepository` is the production retrieval adapter. It reads outlines, chapters, summaries, facts, timeline events, and fixed novel entities inside `withRequestContext`, applies each source's GIN expression index before ranking with PostgreSQL full-text search, keeps excerpts bounded, and verifies the stored hash before a new snapshot is written. Retries and continuations replay the database snapshot in rank order without reading the source entities again. The host still supplies the actual LLM adapter and a durable result repository; production result repositories must implement `withIdempotencyLock` or an equivalent database-backed claim.
 
+No invariant companion is published because draft ownership, idempotency, and publication conditions are enforced by the authoring services and their repository transactions.
+
 </details>
 
 -----

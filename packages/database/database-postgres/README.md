@@ -84,6 +84,8 @@ Workers can write draft records and draft versions in their bound workspace. Rev
 
 The framework-neutral authentication routes live in [`@deepseek-ai/dsh-user-auth`](../../identity/user-auth/README.md). This package supplies the PostgreSQL stores and tables used by those routes; it does not own HTTP routing, cookies, JWT issuance, Redis limits, or mail delivery.
 
+No invariant companion is published because schema constraints, migration checksums, and connection-role checks enforce database consistency at their owning operations.
+
 </details>
 
 -----

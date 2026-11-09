@@ -25,6 +25,14 @@ import type {
   RefreshTokenStore,
 } from './index.ts'
 
+const sessionColumns = {
+  userId: sessions.userId,
+  sessionId: sessions.id,
+  clientType: sessions.clientType,
+  expiresAt: sessions.expiresAt,
+  revokedAt: sessions.revokedAt,
+}
+
 type AuthStatus = AuthUserRecord['status']
 
 type DatabaseClientType = 'web' | 'official_client'
@@ -220,13 +228,7 @@ export class PostgresAuthStore implements AuthLifecycleStore, RefreshTokenStore 
    * @returns Session metadata or null; callers must check client type, expiry, and revocation.
    */
   async findSessionByTokenHash(tokenHash: string): Promise<AuthHttpSession | null> {
-    const [session] = await this.database.db.select({
-      userId: sessions.userId,
-      sessionId: sessions.id,
-      clientType: sessions.clientType,
-      expiresAt: sessions.expiresAt,
-      revokedAt: sessions.revokedAt,
-    }).from(sessions).where(eq(sessions.tokenHash, tokenHash)).limit(1)
+    const [session] = await this.database.db.select(sessionColumns).from(sessions).where(eq(sessions.tokenHash, tokenHash)).limit(1)
     if (session === undefined) return null
     return { ...session, clientType: fromDatabaseClientType(session.clientType as DatabaseClientType) }
   }
@@ -237,13 +239,7 @@ export class PostgresAuthStore implements AuthLifecycleStore, RefreshTokenStore 
    * @returns Session metadata or null; callers must check user, client type, expiry, and revocation.
    */
   async findSessionById(sessionId: string): Promise<AuthHttpSession | null> {
-    const [session] = await this.database.db.select({
-      userId: sessions.userId,
-      sessionId: sessions.id,
-      clientType: sessions.clientType,
-      expiresAt: sessions.expiresAt,
-      revokedAt: sessions.revokedAt,
-    }).from(sessions).where(eq(sessions.id, sessionId)).limit(1)
+    const [session] = await this.database.db.select(sessionColumns).from(sessions).where(eq(sessions.id, sessionId)).limit(1)
     if (session === undefined) return null
     return { ...session, clientType: fromDatabaseClientType(session.clientType as DatabaseClientType) }
   }

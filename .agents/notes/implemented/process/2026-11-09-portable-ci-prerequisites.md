@@ -16,6 +16,8 @@ Standard hosted coverage uses two single-worker instrumented partitions, one exe
 
 The database, authentication, authoring, and authoring HTTP packages declare matching `workspace:^` Cordis peer and development dependencies. The HTTP package carries public publication metadata. The [database payload policy](../../../../scripts/check-workspace-constraints.ts) admits only root migration SQL files, the migration journal, and the two named deployment scripts beside built artifacts. Drizzle configuration, source, snapshot metadata, and maps remain excluded; unrelated package payload rules do not change.
 
+The sandbox bootstrap downloads the reviewed Ubuntu Noble bubblewrap update and verifies its SHA256 before extraction; the namespace functional probe remains mandatory. Package READMEs record why no invariant companion is published, and the module graph is generated from current package declarations. Repeated column builders allocate fresh instances while the committed Drizzle metadata snapshot pins every ordered column, default, constraint, and index. Shared session selections and saved-context mapping preserve existing validation and transaction ownership.
+
 ## Alternatives considered
 
 **Require enterprise runner labels everywhere.** This leaves repositories without those labels unable to complete required checks.

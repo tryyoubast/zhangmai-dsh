@@ -62,6 +62,8 @@ Refresh token 轮换由 Store 的单个事务负责，包括重放检测、famil
 
 `AuthHttpController.handle()` 在错误处理范围内等待路由操作。符合现有分类的凭据校验错误返回 `400 invalid_request`；其他失败返回 `500 authentication_unavailable`，不包含原始错误详情。会话解析器可以依赖实例状态：控制器通过解析器对象调用其方法。JWT 解析先校验解码对象及字段，再返回声明。
 
+本包不发布不变量伴生模块，因为认证状态在 Store 操作与数据库事务中校验，不会镜像到独立的运行时注册表。
+
 </details>
 
 -----

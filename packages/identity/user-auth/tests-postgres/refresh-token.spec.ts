@@ -50,6 +50,16 @@ async function rotated(fixture: PostgresAuthFixture, token: string): Promise<Cre
   return result
 }
 
+function expectRevocationOutcome(first: unknown, second: unknown, rotateFirst: boolean, identity: object): void {
+  if (rotateFirst) {
+    expect(first).toMatchObject(identity)
+    expect(second).toBeUndefined()
+  } else {
+    expect(first).toBeUndefined()
+    expect(second).toBeNull()
+  }
+}
+
 async function expectRevoked(fixture: PostgresAuthFixture, familyId: string, count: number): Promise<void> {
   const rows = await fixture.tokens(familyId)
   expect(rows).toHaveLength(count)
@@ -177,14 +187,8 @@ describe('PostgreSQL refresh-token rotation', () => {
       expect(secondWaitsForFamily).toBe(true)
       const first = fulfilled(results[0])
       const second = fulfilled(results[1])
-      if (rotateFirst) {
-        expect(first).toMatchObject({ familyId: initial.familyId, userId, sessionId })
-        expect(second).toBeUndefined()
-        if (first) await expect(fixture.firstService.rotate(first.token)).resolves.toBeNull()
-      } else {
-        expect(first).toBeUndefined()
-        expect(second).toBeNull()
-      }
+      expectRevocationOutcome(first, second, rotateFirst, { familyId: initial.familyId, userId, sessionId })
+      if (rotateFirst && first) await expect(fixture.firstService.rotate(first.token)).resolves.toBeNull()
       await expectRevoked(fixture, initial.familyId, rotateFirst ? 2 : 1)
       expect(await fixture.tokens(unrelated.familyId)).toEqual(unrelatedBefore)
       expect(await fixture.audits(initial.familyId)).toHaveLength(0)
@@ -210,14 +214,8 @@ describe('PostgreSQL refresh-token rotation', () => {
       expect(secondWaitsForFamily).toBe(false)
       const first = fulfilled(results[0])
       const second = fulfilled(results[1])
-      if (rotateFirst) {
-        expect(first).toMatchObject({ familyId: initial.familyId })
-        expect(second).toBeUndefined()
-        if (first) await expect(fixture.firstService.rotate(first.token)).resolves.toBeNull()
-      } else {
-        expect(first).toBeUndefined()
-        expect(second).toBeNull()
-      }
+      expectRevocationOutcome(first, second, rotateFirst, { familyId: initial.familyId })
+      if (rotateFirst && first) await expect(fixture.firstService.rotate(first.token)).resolves.toBeNull()
       await expectRevoked(fixture, initial.familyId, rotateFirst ? 2 : 1)
       await expectRevoked(fixture, otherFamily.familyId, 1)
       const user = await fixture.control.query('SELECT password_hash,password_changed_at FROM auth.users WHERE id=$1', [userId])

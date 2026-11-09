@@ -1,4 +1,5 @@
 /** Generate draft-only model output with durable context snapshots and idempotent result persistence. */
+import { persistedContextCandidate } from './context-candidate.ts'
 import { rankContextCandidates, type ContextCandidate } from './index.ts'
 import type {
   GenerationContextSelectionInput,
@@ -216,19 +217,7 @@ function contextFromPersisted(
     })
     .slice()
     .sort((left, right) => left.rank - right.rank)
-    .map(item => ({
-      sourceType: item.sourceType,
-      sourceId: item.sourceId,
-      workspaceId: item.workspaceId,
-      novelId: item.novelId,
-      status: item.sourceStatus,
-      relevanceScore: 0,
-      recencyScore: 0,
-      excerptHash: item.excerptHash,
-      excerpt: item.excerpt,
-      tokenCount: item.tokenCount,
-      selectionReason: item.selectionReason,
-    }))
+    .map(persistedContextCandidate)
 }
 
 function isContextStatus(status: string): status is ContextCandidate['status'] {

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-11-09-portable-ci-prerequisites.md
-2026-11-09-portable-ci-prerequisites.md: c95d8b22de6d1e406f5ee755a4ff505ea8fcec73
-2026-11-09-portable-ci-prerequisites.zh.md: 220331471325d9af30b9d6d70da304fea4f4a1e0
+2026-11-09-portable-ci-prerequisites.md: 9307c45625cc4099df6850b243b5206368ab517e
+2026-11-09-portable-ci-prerequisites.zh.md: 87c8e969daa2d3bcd24637d779842d6c8f0ec579
