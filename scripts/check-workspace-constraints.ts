@@ -169,15 +169,6 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   // The JSONL backend resolves its private verification Worker relative to
   // import.meta.url; it is shipped without a public package subpath.
   '@deepseek-ai/dsh-session-persistence-jsonl': ['lib/worker.cjs'],
-  // Database consumers and operators need the committed migrations, journal,
-  // controlled helper scripts, and Drizzle configuration after installation.
-  '@deepseek-ai/dsh-database-postgres': [
-    'migrations/**/*.sql',
-    'migrations/meta/_journal.json',
-    'scripts/**/*.sql',
-    'scripts/**/*.js',
-    'drizzle.config.ts',
-  ],
   // The argv-prefix runner entry ships beside the lib as its own bundle;
   // sandbox-local resolves it through the package's ./runner export. tsdown
   // also shares its generated FFI code through a hashed runtime chunk.

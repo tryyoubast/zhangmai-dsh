@@ -1,11 +1,6 @@
-import { once } from 'node:events'
-import { createServer } from 'node:http'
 import { readFileSync } from 'node:fs'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import { runInNewContext } from 'node:vm'
-import { execa } from 'execa'
 import * as yaml from 'js-yaml'
 import { describe, expect, it } from 'vitest'
 
@@ -72,8 +67,6 @@ describe('CI workflow', () => {
       if (jobName.startsWith('windows-')) {
         expect(stepDest, `${jobName} must use the native Windows pnpm destination`).toBe(nativeWindowsPnpmDestination)
         expect(step).not.toMatchObject({ with: { standalone: true } })
-      } else if (jobName === 'postgres-18-auth') {
-        expect(stepDest).toBe('${{ runner.temp }}/setup-pnpm-postgres-${{ github.run_id }}-${{ github.run_attempt }}')
       } else {
         expect(typeof stepDest, `${jobName} must use a runner-and-run-private pnpm destination`).toBe('string')
         expect(stepDest as string).toMatch(runnerPrivatePnpmDestination)
@@ -179,7 +172,7 @@ describe('CI workflow', () => {
       expect(job['runs-on'], `${jobName} runs-on must not use the Linux failover switch`).not.toContain('DSH_CI_FAILOVER_LINUX')
       expect(job['runs-on']).toContain('self-hosted')
       expect(job['runs-on']).toContain('dsh-win-ci')
-      expect(job['runs-on']).toContain("'windows-2025'")
+      expect(job['runs-on']).toContain('dsh-windows-2025-16core')
       expect(job['runs-on']).toContain('blacksmith-16vcpu-windows-2025')
       expect(job.if).toBe("github.event_name == 'pull_request'")
     }
@@ -221,9 +214,9 @@ describe('CI workflow', () => {
       expect(install!.run).not.toContain('$cloneFlag')
     }
 
-    // windows-coverage uses the selected runner capacity profile.
+    // windows-coverage uses the lower 4-partition profile.
     expect(windowsCoverage.name).toBe('windows node 24 / coverage')
-    expect(windowsCoverage.env).toHaveProperty('DSH_COVERAGE_PARTITIONS')
+    expect(windowsCoverage.env).toMatchObject({ DSH_COVERAGE_PARTITIONS: '4' })
     const coverageSteps = windowsCoverage.steps as unknown[]
     const coverageCommands = coverageSteps.filter((step): step is Record<string, unknown> & { run: string } => (
       isRecord(step) && typeof step.run === 'string'
@@ -255,7 +248,7 @@ describe('CI workflow', () => {
     expect(windowsObservational['continue-on-error']).toBe(true)
 
     // serial-windows: master-only standby, self-hosted, non-blocking, lives in ci-master.
-    expect(serialWindows.if).toBe("github.event_name == 'push' && github.ref == 'refs/heads/master' && vars.DSH_SELFHOSTED_STANDBY_ENABLED == 'true'")
+    expect(serialWindows.if).toBe("github.event_name == 'push' && github.ref == 'refs/heads/master'")
     expect(serialWindows['runs-on']).toEqual(['self-hosted', 'dsh-win-ci', 'windows'])
     expect(serialWindows.name).toBe('serial / windows (self-hosted standby)')
     // Its store must share the ReFS workspace volume for clone; the install
@@ -343,9 +336,9 @@ describe('CI workflow', () => {
       }, { timeout: 1000 })
     }
     for (const [name, selector, variable, pool, hosted] of [
-      ['linux gates', selectors.linux, 'DSH_CI_FAILOVER_LINUX', ['self-hosted', 'linux', 'x64', 'vm-backup'], 'ubuntu-24.04'],
-      ['linux aggregate', selectors.linuxAggregate, 'DSH_CI_FAILOVER_LINUX', ['self-hosted', 'linux', 'x64', 'vm-backup'], 'ubuntu-24.04'],
-      ['windows lanes', selectors.windows, 'DSH_CI_FAILOVER_WINDOWS', ['self-hosted', 'dsh-win-ci', 'windows'], 'windows-2025'],
+      ['linux gates', selectors.linux, 'DSH_CI_FAILOVER_LINUX', ['self-hosted', 'linux', 'x64', 'vm-backup'], 'dsh-ubuntu-24-04-16core'],
+      ['linux aggregate', selectors.linuxAggregate, 'DSH_CI_FAILOVER_LINUX', ['self-hosted', 'linux', 'x64', 'vm-backup'], 'ubuntu-latest'],
+      ['windows lanes', selectors.windows, 'DSH_CI_FAILOVER_WINDOWS', ['self-hosted', 'dsh-win-ci', 'windows'], 'dsh-windows-2025-16core'],
     ] as const) {
       expect(evaluate(selector, { [variable]: 'blacksmith' }), `${name} blacksmith value`).toMatch(/^blacksmith-/)
       expect(evaluate(selector, { [variable]: 'selfhosted' }), `${name} selfhosted value`).toEqual(pool)
@@ -486,7 +479,7 @@ describe('CI workflow', () => {
       if (!isRecord(job)) throw new TypeError(`${name} must be defined`)
       expect(job.concurrency).toBeUndefined()
       // Standby drills remain post-merge work, but share run cancellation.
-      expect(job.if).toBe("github.event_name == 'push' && github.ref == 'refs/heads/master' && vars.DSH_SELFHOSTED_STANDBY_ENABLED == 'true'")
+      expect(job.if).toBe("github.event_name == 'push' && github.ref == 'refs/heads/master'")
     }
 
     // Pin the post-merge runtime, Wine, and standby inventory.
@@ -941,53 +934,7 @@ describe('Weighted approval workflow', () => {
 })
 
 describe('Issue lifecycle workflow', () => {
-  it('validates the exact Project status order using the trusted inline script', async () => {
-    const lifecycle = loadWorkflow('.github/workflows/issue-lifecycle.yml')
-    const lifecycleJob = workflowJob(lifecycle, 'lifecycle')
-    if (!Array.isArray(lifecycleJob.steps)) throw new TypeError('Issue lifecycle job must define steps')
-    const configStep = lifecycleJob.steps.filter(isRecord).find(step => step.name === 'Validate Project configuration')
-    if (typeof configStep?.run !== 'string') throw new TypeError('Project configuration step must define its script')
-    const script = configStep.run.match(/^node --input-type=module <<'NODE'\r?\n([\s\S]*?)\r?\nNODE\s*$/)?.[1]
-    if (script === undefined) throw new TypeError('Project configuration step must contain an inline script')
-    expect(script).not.toContain("from './.github/issue-management/policy.mjs'")
-
-    const sourceConfig = JSON.parse(readFileSync(resolve(root, '.github/issue-management/config.json'), 'utf8')) as Record<string, unknown>
-    const expectedStatuses = ['Inbox', 'Backlog', 'Ready', 'In progress', 'In review', 'Done', 'No action']
-    const tempRoot = await mkdtemp(join(tmpdir(), 'dsh-project-config-'))
-    const configPath = join(tempRoot, '.github/issue-management/config.json')
-    try {
-      await mkdir(join(tempRoot, '.github/issue-management'), { recursive: true })
-      const validate = async (statuses: string[]) => {
-        await writeFile(configPath, JSON.stringify({ ...sourceConfig, statuses }))
-        return execa(process.execPath, ['--input-type=module', '-e', script], {
-          cwd: tempRoot,
-          env: {
-            ...process.env,
-            GITHUB_REPOSITORY: `${String(sourceConfig.organization)}/${String(sourceConfig.repository)}`,
-          },
-          reject: false,
-          maxBuffer: 32_000,
-        })
-      }
-
-      const valid = await validate(expectedStatuses)
-      expect(valid.exitCode).toBe(0)
-      for (const statuses of [
-        [...expectedStatuses].reverse(),
-        [...expectedStatuses.slice(0, 3), 'Ready', ...expectedStatuses.slice(4)],
-        expectedStatuses.slice(1),
-        [...expectedStatuses, 'Archived'],
-      ]) {
-        const invalid = await validate(statuses)
-        expect(invalid.exitCode).toBe(1)
-        expect(invalid.stderr).toContain('exactly match the canonical lifecycle order')
-      }
-    } finally {
-      await rm(tempRoot, { recursive: true, force: true })
-    }
-  })
-
-  it('runs the lifecycle job on every repository event and gates optional Project automation', () => {
+  it('runs the lifecycle job on every PR/review event but gates token and board steps', () => {
     const lifecycle = loadWorkflow('.github/workflows/issue-lifecycle.yml')
     const policy = loadWorkflow('.github/workflows/issue-policy.yml')
     const lifecycleJob = workflowJob(lifecycle, 'lifecycle')
@@ -999,274 +946,59 @@ describe('Issue lifecycle workflow', () => {
     // never mint a Project/Issue App token nor touch the board.
     expect(lifecycle.on).toHaveProperty('pull_request')
     expect(lifecycle.on).toHaveProperty('pull_request_review')
-    expect(workflowEvent(lifecycle, 'issues').types).toEqual([
-      'opened', 'edited', 'assigned', 'unassigned', 'labeled', 'unlabeled', 'closed', 'reopened', 'field_added', 'field_removed',
-    ])
     expect(lifecycleJob.if).toBeUndefined()
     // Keep the subscription-type gates: issue-lifecycle does not re-subscribe
     // ready_for_review (issue-policy owns that) and only reacts to submitted
     // review events.
     const lifecyclePullRequest = workflowEvent(lifecycle, 'pull_request')
     const lifecycleReview = workflowEvent(lifecycle, 'pull_request_review')
-    expect(lifecyclePullRequest.types).toEqual([
-      'opened', 'edited', 'synchronize', 'reopened', 'labeled', 'unlabeled', 'review_requested',
-    ])
+    expect(lifecyclePullRequest.types).toContain('opened')
+    expect(lifecyclePullRequest.types).not.toContain('ready_for_review')
+    expect(lifecyclePullRequest.types).toContain('review_requested')
     expect(lifecycleReview.types).toEqual(['submitted'])
-    const enabledAndGated = "${{ vars.DSH_PROJECT_AUTOMATION_ENABLED == 'true' && (github.event_name == 'issues' || (github.event.pull_request.user.login != 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository && (github.event_name != 'pull_request_review' || github.event.review.state == 'changes_requested'))) }}"
+    const gated = "${{ github.event_name != 'pull_request_review' || github.event.review.state == 'changes_requested' }}"
     const steps = lifecycleJob.steps.filter(isRecord)
-    const checkout = steps.find(s => s.name === 'Check out trusted policy')
-    const configStep = steps.find(s => s.name === 'Validate Project configuration')
     const tokenStep = steps.find(s => s.name === 'Create project token')
     const handleStep = steps.find(s => s.name === 'Handle repository event')
-    const disabledSummary = steps.find(s => s.name === 'Record disabled Project automation')
-    const forkSummary = steps.find(s => s.name === 'Record fork or Dependabot Project automation skip')
-    expect(checkout).toMatchObject({
-      uses: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
-      with: {
-        ref: '${{ github.event.repository.default_branch }}',
-        'persist-credentials': false,
-      },
-    })
-    expect(configStep).toMatchObject({ if: enabledAndGated, env: { GITHUB_REPOSITORY: '${{ github.repository }}' } })
-    expect(configStep?.run).toContain('.github/issue-management/config.json')
-    expect(configStep?.run).toContain('GITHUB_REPOSITORY')
-    expect(configStep?.run).toContain('organization')
-    expect(configStep?.run).toContain('repository')
-    expect(configStep?.run).toContain('new Intl.DateTimeFormat')
-    expect(configStep?.run).toContain('config.statuses.length !== requiredStatuses.length')
-    expect(configStep?.run).toContain('exactly match the canonical lifecycle order')
-    expect(tokenStep).toMatchObject({
-      if: enabledAndGated,
-      uses: 'actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1',
-      with: {
-        'client-id': '${{ vars.DSH_ISSUE_APP_CLIENT_ID }}',
-        'private-key': '${{ secrets.DSH_ISSUE_APP_PRIVATE_KEY }}',
-        owner: '${{ github.repository_owner }}',
-        repositories: '${{ github.event.repository.name }}',
-      },
-    })
-    expect(handleStep).toMatchObject({
-      if: enabledAndGated,
-      env: { GH_TOKEN: '${{ steps.app-token.outputs.token }}' },
-      run: 'node .github/issue-management/policy.mjs lifecycle',
-    })
-    expect(steps.indexOf(configStep!)).toBeLessThan(steps.indexOf(tokenStep!))
-    expect(steps.indexOf(tokenStep!)).toBeLessThan(steps.indexOf(handleStep!))
-    expect(disabledSummary).toMatchObject({
-      if: "${{ vars.DSH_PROJECT_AUTOMATION_ENABLED != 'true' }}",
-    })
-    expect(disabledSummary?.run).toContain('Project lifecycle automation is disabled')
-    expect(disabledSummary?.run).toContain('GITHUB_STEP_SUMMARY')
-    expect(disabledSummary?.run).not.toContain('GH_TOKEN')
-    expect(forkSummary).toMatchObject({
-      if: "${{ vars.DSH_PROJECT_AUTOMATION_ENABLED == 'true' && github.event_name != 'issues' && (github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login == 'dependabot[bot]') }}",
-    })
-    expect(forkSummary?.run).toContain('Project lifecycle automation was skipped for this fork or Dependabot pull request')
-    const evaluatePredicate = (condition: unknown, eventName: string, event: Record<string, unknown>, enabled: boolean) => {
-      if (typeof condition !== 'string') throw new TypeError('lifecycle step must define a condition')
-      const result: unknown = runInNewContext(condition.trim().slice(3, -2), {
-        vars: { DSH_PROJECT_AUTOMATION_ENABLED: enabled ? 'true' : 'false' },
-        github: { repository: 'acme/repo', event_name: eventName, event },
-      }, { timeout: 1000 })
-      return result
-    }
-    const sameRepositoryPull = { pull_request: { user: { login: 'author' }, head: { repo: { full_name: 'acme/repo' } } } }
-    const forkPull = { pull_request: { user: { login: 'author' }, head: { repo: { full_name: 'fork-owner/repo' } } } }
-    const dependabotPull = { pull_request: { user: { login: 'dependabot[bot]' }, head: { repo: { full_name: 'acme/repo' } } } }
-    const changeRequested = { ...sameRepositoryPull, review: { state: 'changes_requested' } }
-    const approved = { ...sameRepositoryPull, review: { state: 'approved' } }
-    const commented = { ...sameRepositoryPull, review: { state: 'commented' } }
-    expect(evaluatePredicate(configStep?.if, 'pull_request', sameRepositoryPull, true)).toBe(true)
-    expect(evaluatePredicate(tokenStep?.if, 'pull_request', forkPull, true)).toBe(false)
-    expect(evaluatePredicate(handleStep?.if, 'pull_request_review', { ...forkPull, review: { state: 'changes_requested' } }, true)).toBe(false)
-    expect(evaluatePredicate(configStep?.if, 'pull_request', dependabotPull, true)).toBe(false)
-    expect(evaluatePredicate(tokenStep?.if, 'pull_request', dependabotPull, true)).toBe(false)
-    expect(evaluatePredicate(handleStep?.if, 'pull_request_review', { ...dependabotPull, review: { state: 'changes_requested' } }, true)).toBe(false)
-    expect(evaluatePredicate(configStep?.if, 'pull_request_review', changeRequested, true)).toBe(true)
-    expect(evaluatePredicate(tokenStep?.if, 'pull_request_review', approved, true)).toBe(false)
-    expect(evaluatePredicate(handleStep?.if, 'pull_request_review', commented, true)).toBe(false)
-    expect(evaluatePredicate(handleStep?.if, 'issues', { issue: { number: 4 } }, true)).toBe(true)
-    expect(evaluatePredicate(tokenStep?.if, 'pull_request', sameRepositoryPull, false)).toBe(false)
-    expect(evaluatePredicate(forkSummary?.if, 'pull_request', forkPull, true)).toBe(true)
-    expect(evaluatePredicate(forkSummary?.if, 'pull_request_review', { ...forkPull, review: { state: 'approved' } }, true)).toBe(true)
-    expect(evaluatePredicate(forkSummary?.if, 'pull_request', dependabotPull, true)).toBe(true)
-    expect(evaluatePredicate(forkSummary?.if, 'pull_request', sameRepositoryPull, true)).toBe(false)
-    expect(evaluatePredicate(forkSummary?.if, 'pull_request', forkPull, false)).toBe(false)
-    expect(evaluatePredicate(forkSummary?.if, 'issues', { issue: { number: 4 } }, true)).toBe(false)
-    expect(JSON.stringify(lifecycle)).not.toContain('graphql')
+    expect(tokenStep).toMatchObject({ if: gated })
+    expect(handleStep).toMatchObject({ if: gated })
 
     // issue-policy owns PR validation; it is read-only and a real gate.
     const policyPullRequest = workflowEvent(policy, 'pull_request')
-    expect(policyPullRequest.types).toEqual([
-      'opened', 'edited', 'synchronize', 'reopened', 'labeled', 'unlabeled', 'ready_for_review', 'review_requested',
-    ])
-    expect(workflowEvent(policy, 'pull_request_review').types).toEqual(['submitted'])
+    expect(policyPullRequest.types).toContain('ready_for_review')
   })
 
-  it('uses trusted checkout and read-only pull request permission for PR validation', () => {
+  it('uses a read-only Project token only for human pull request policy metadata', () => {
     const policy = loadWorkflow('.github/workflows/issue-policy.yml')
     const policyJob = workflowJob(policy, 'policy')
     if (!Array.isArray(policyJob.steps)) throw new TypeError('Issue policy job must define steps')
     const steps = policyJob.steps.filter(isRecord)
-    const checkout = steps.find(step => step.name === 'Check out trusted policy')
+    const tokenStep = steps.find(step => step.name === 'Create Project read token')
     const validateStep = steps.find(step => step.name === 'Validate pull request')
-    expect(policy.name).toBe('Issue policy')
-    expect(policyJob.name).toBe('Issue policy')
-    expect(policy.permissions).toEqual({
-      contents: 'read',
-      'pull-requests': 'read',
-    })
-    expect(checkout).toMatchObject({
-      uses: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
+    const humanPullRequest =
+      "${{ github.event.pull_request.user.type != 'Bot' && github.event.pull_request.user.type != 'App' }}"
+
+    expect(tokenStep).toMatchObject({
+      id: 'app-token',
+      if: humanPullRequest,
+      uses: 'actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1',
       with: {
-        ref: '${{ github.event.repository.default_branch }}',
-        'persist-credentials': false,
+        'client-id': '${{ vars.DSH_ISSUE_APP_CLIENT_ID }}',
+        'private-key': '${{ secrets.DSH_ISSUE_APP_PRIVATE_KEY }}',
+        owner: 'deepseek-harness',
+        repositories: 'deepseek-harness',
+        'permission-issues': 'read',
+        'permission-organization-projects': 'read',
       },
     })
-    expect(steps.some(step => typeof step.uses === 'string'
-      && step.uses.includes('create-github-app-token'))).toBe(false)
-    expect(JSON.stringify(policy)).not.toContain('PROJECT_TOKEN')
-    expect(JSON.stringify(policy)).not.toContain('DSH_ISSUE_APP_PRIVATE_KEY')
     expect(validateStep).toMatchObject({
+      if: humanPullRequest,
       env: {
         GITHUB_TOKEN: '${{ github.token }}',
-        GITHUB_REPOSITORY: '${{ github.repository }}',
+        PROJECT_TOKEN: '${{ steps.app-token.outputs.token }}',
       },
     })
-    expect(validateStep?.run).toContain('node --input-type=module')
-    expect(validateStep?.run).toContain("from './.github/issue-management/policy.mjs'")
-    expect(validateStep?.run).not.toContain('parseReferences')
-    expect(validateStep?.run).not.toContain('issues/')
   })
-
-  it('executes the trusted inline adapter using PR state and labels only', async () => {
-    const policy = loadWorkflow('.github/workflows/issue-policy.yml')
-    const policyJob = workflowJob(policy, 'policy')
-    if (!Array.isArray(policyJob.steps)) throw new TypeError('Issue policy job must define steps')
-    const validateStep = policyJob.steps.filter(isRecord).find(step => step.name === 'Validate pull request')
-    if (typeof validateStep?.run !== 'string') throw new TypeError('Issue policy must define an inline adapter')
-    const match = validateStep.run.match(/node --input-type=module <<'NODE'\r?\n([\s\S]*?)\r?\nNODE\s*$/)
-    expect(match, 'the executable adapter must be embedded in the workflow').not.toBeNull()
-    const adapter = match?.[1]
-    if (adapter === undefined) throw new TypeError('Issue policy adapter must contain an executable script')
-    const requests: Array<{ path: string; authorization: string | undefined }> = []
-    let scenario: {
-      draft?: boolean
-      authorType?: string
-      requested?: boolean
-      reviewed?: boolean
-      body?: string
-      labels?: string[]
-    } = {}
-    const server = createServer((request, response) => {
-      const requestUrl = new URL(request.url ?? '/', 'http://127.0.0.1')
-      const path = `${requestUrl.pathname}${requestUrl.search}`
-      requests.push({ path, authorization: request.headers.authorization })
-      const json = (status: number, body: unknown) => {
-        response.writeHead(status, { 'content-type': 'application/json' })
-        response.end(JSON.stringify(body))
-      }
-      if (path === '/api/v3/repos/acme/widget/pulls/17') {
-        json(200, {
-          number: 17,
-          body: scenario.body ?? '',
-          draft: scenario.draft ?? false,
-          user: { type: scenario.authorType ?? 'User' },
-          labels: (scenario.labels ?? ['kind/bug-fix', 'area/core', 'p1']).map(name => ({ name })),
-        })
-      } else if (path === '/api/v3/repos/acme/widget/pulls/17/requested_reviewers') {
-        json(200, { users: scenario.requested ? [{ login: 'reviewer' }] : [], teams: [] })
-      } else if (path === '/api/v3/repos/acme/widget/pulls/17/reviews?per_page=100') {
-        json(200, scenario.reviewed ? [{ state: 'COMMENTED' }] : [])
-      } else {
-        json(404, { message: 'Unexpected API path' })
-      }
-    })
-    const tempRoot = await mkdtemp(join(tmpdir(), 'dsh-issue-policy-'))
-    const eventPath = join(tempRoot, 'event.json')
-    try {
-      server.listen(0, '127.0.0.1')
-      await once(server, 'listening')
-      const address = server.address()
-      if (!address || typeof address === 'string') throw new TypeError('loopback server must expose its port')
-      const apiUrl = `http://127.0.0.1:${address.port}/api/v3`
-      const runAdapter = async () => {
-        await writeFile(eventPath, JSON.stringify({ pull_request: { number: 17 } }))
-        const result = await execa(process.execPath, ['--input-type=module', '-e', adapter], {
-          cwd: root,
-          env: {
-            ...process.env,
-            GITHUB_API_URL: apiUrl,
-            GITHUB_EVENT_PATH: eventPath,
-            GITHUB_REPOSITORY: 'acme/widget',
-            GITHUB_TOKEN: 'workflow-test-token',
-          },
-          maxBuffer: 32_000,
-          reject: false,
-          timeout: 10_000,
-        })
-        return {
-          code: result.exitCode ?? null,
-          signal: result.signal ?? null,
-          stdout: result.stdout,
-          stderr: result.stderr,
-        }
-      }
-
-      scenario = { requested: false, reviewed: true, body: '' }
-      const unreferenced = await runAdapter()
-      expect(unreferenced).toMatchObject({ code: 0, signal: null })
-      expect(unreferenced.stdout).toContain('Issue policy 通过')
-      expect(unreferenced.stdout + unreferenced.stderr).not.toContain('workflow-test-token')
-
-      scenario = { requested: false, reviewed: true, body: 'Fixes #4' }
-      const referenced = await runAdapter()
-      expect(referenced).toMatchObject({ code: 0, signal: null })
-      expect(referenced.stdout).toContain('Issue policy 通过')
-
-      scenario = {
-        requested: true,
-        labels: ['kind/feature', 'area/core', 'p2', 'p3'],
-      }
-      const multiplePriorities = await runAdapter()
-      expect(multiplePriorities.code).not.toBe(0)
-      expect(multiplePriorities.stdout + multiplePriorities.stderr).toContain('PR 最多有一个 p0–p3')
-
-      for (const inactive of [
-        { draft: true, requested: true, reviewed: false },
-        { authorType: 'Bot', requested: true, reviewed: true },
-        { authorType: 'App', requested: true, reviewed: false },
-        { requested: false, reviewed: false },
-      ]) {
-        scenario = inactive
-        const skipped = await runAdapter()
-        expect(skipped).toMatchObject({ code: 0, signal: null })
-        expect(skipped.stdout).toContain('尚未进入 Issue policy 强制范围')
-        expect(skipped.stdout + skipped.stderr).not.toContain('workflow-test-token')
-      }
-
-      expect(requests.length).toBeGreaterThan(0)
-      for (const request of requests) {
-        expect(request.path).toMatch(
-          /^\/api\/v3\/repos\/acme\/widget\/pulls\/17(?:\/requested_reviewers|\/reviews\?per_page=100)?$/,
-        )
-        expect(request.path).not.toMatch(/issues|graphql|projects|apps/i)
-        expect(request.authorization).toBe('Bearer workflow-test-token')
-      }
-      expect(requests.filter(request => request.path.includes('/issues/'))).toHaveLength(0)
-    } finally {
-      if (server.listening) await new Promise<void>((resolveClose, rejectClose) => {
-        server.close((error) => {
-          if (error) {
-            rejectClose(error)
-            return
-          }
-          resolveClose()
-        })
-      })
-      await rm(tempRoot, { recursive: true, force: true })
-    }
-  }, 30_000)
 })
 
 describe('npm release workflows', () => {

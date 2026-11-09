@@ -18,7 +18,7 @@ Issue template frontmatter 只含 `name`、`about` 和 `type`。Markdown 标题�
 
 PR template 包含 `Motivation`、在 `Changes` 中相邻排列的公共接口与行为变化占位说明，以及直接展示每项测试方法并在局部 `details` 元素中放置对应证明的 `Testing` 条目。
 
-Issue policy 不检查 `details` 展示形式、可见正文长度、标题语言、标题前缀或正文 ownership 行。拉取请求引用 Issue 是可选项；当前必需标签与优先级来源由[独立仓库 CI 决策](2026-11-05-independent-repository-ci.zh.md)负责。这项决策不增加 metadata 自动修复、Issue 分类、数据迁移或 workflow 能力。
+Issue policy 不检查 `details` 展示形式、可见正文长度、标题语言、标题前缀或正文 ownership 行。其他所有 policy 检查、警告、生命周期操作、workflow 触发条件和 PR 强制范围豁免均保持既有行为。这项决策不增加 metadata 自动修复、Issue 分类、数据迁移或 workflow 能力。
 
 ## 验证
 

@@ -21,19 +21,10 @@
   },
   "files": ["lib/index.js", "lib/types/**/*.d.ts"],
   "scripts": {
-    "test": "pnpm --dir ../../../ exec node node_modules/vitest/vitest.mjs run --config vitest.config.ts packages/identity/user-auth/tests",
-    "test:postgres": "pnpm --dir ../../../ run test:postgres"
+    "test": "pnpm --dir ../../../ exec node node_modules/vitest/vitest.mjs run --config vitest.config.ts packages/identity/user-auth/tests"
   },
   "license": "MIT",
   "dependencies": {
     "@deepseek-ai/dsh-database-postgres": "workspace:^"
-  },
-  "peerDependencies": {
-    "@deepseek-ai/cordis": "workspace:^"
-  },
-  "devDependencies": {
-    "@deepseek-ai/cordis": "workspace:^",
-    "@types/pg": "^8.15.5",
-    "pg": "^8.16.3"
   }
 }

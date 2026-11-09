@@ -49,41 +49,7 @@ function evaluateCondition(expression: string, cancelled: boolean, results: stri
   }, { timeout: 1000 }) as boolean
 }
 
-function evaluateMasterCondition(expression: string, enabled: string, event = 'push', ref = 'refs/heads/master', suite = ''): boolean {
-  return runInNewContext(expression, {
-    vars: { DSH_SELFHOSTED_STANDBY_ENABLED: enabled },
-    github: { event_name: event, ref },
-    inputs: { suite },
-  }, { timeout: 1000 }) as boolean
-}
-
 describe('master-only platform scheduling', () => {
-  it.each(['serial-linux-selfhosted', 'serial-windows'])('%s requires an explicit enabled standby on master push', (name) => {
-    const job = workflow('ci-master.yml').jobs[name]!
-    expect(typeof job.if).toBe('string')
-    const condition = job.if as string
-    for (const enabled of ['', 'false', '1', 'unexpected']) {
-      expect(evaluateMasterCondition(condition, enabled), enabled).toBe(false)
-    }
-    expect(evaluateMasterCondition(condition, 'true')).toBe(true)
-    expect(evaluateMasterCondition(condition, 'true', 'pull_request')).toBe(false)
-    expect(evaluateMasterCondition(condition, 'true', 'workflow_dispatch')).toBe(false)
-    expect(evaluateMasterCondition(condition, 'true', 'push', 'refs/heads/topic')).toBe(false)
-  })
-
-  it('preserves ordinary master checks and manual benchmark opt-ins when standbys are disabled', () => {
-    const master = workflow('ci-master.yml')
-    for (const name of ['python-runtime', 'windows']) {
-      expect(evaluateMasterCondition(master.jobs[name]!.if as string, '')).toBe(true)
-    }
-    for (const name of ['larger-runner-benchmark', 'consolidated-runner-benchmark']) {
-      const condition = master.jobs[name]!.if as string
-      expect(evaluateMasterCondition(condition, '')).toBe(false)
-      expect(evaluateMasterCondition(condition, '', 'workflow_dispatch', 'refs/heads/master', name)).toBe(true)
-      expect(evaluateMasterCondition(condition, '', 'workflow_dispatch', 'refs/heads/master', 'other')).toBe(false)
-    }
-  })
-
   it.each(['success', 'failure', 'skipped', 'cancelled'])(
     'reports %s dependencies in active runs but never starts a cancelled-run verdict', (result) => {
       const aggregate = workflow('ci.yml').jobs['all-checks-passed']!

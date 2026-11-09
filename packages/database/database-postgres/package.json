@@ -23,12 +23,12 @@
   },
   "files": [
     "lib/index.js",
+    "lib/types/**/*.d.ts",
     "migrations/**/*.sql",
     "migrations/meta/_journal.json",
     "scripts/**/*.sql",
     "scripts/**/*.js",
-    "drizzle.config.ts",
-    "lib/types/**/*.d.ts"
+    "drizzle.config.ts"
   ],
   "scripts": {
     "test": "pnpm --dir ../../../ exec node node_modules/vitest/vitest.mjs run --config vitest.config.ts packages/database/database-postgres/tests",
@@ -41,11 +41,7 @@
     "drizzle-orm": "^0.44.7",
     "pg": "^8.16.3"
   },
-  "peerDependencies": {
-    "@deepseek-ai/cordis": "workspace:^"
-  },
   "devDependencies": {
-    "@deepseek-ai/cordis": "workspace:^",
     "@types/pg": "^8.15.5",
     "drizzle-kit": "^0.31.4"
   }

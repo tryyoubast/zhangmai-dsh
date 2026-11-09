@@ -1,6 +1,6 @@
 ## Motivation
 
-<!-- 用一句话说明需要解决的问题；Issue 引用可选，可用 Fixes #NN 或 Related #NN 引用同仓库 Issue。 -->
+<!-- 用一句话说明需要解决的问题，并以 Fixes #NN 或 Related #NN 引用同仓库 Issue。 -->
 
 ## Changes
 

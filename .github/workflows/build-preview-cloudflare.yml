@@ -1,7 +1,9 @@
 name: Build PR preview
 
-# Every pull request gets build validation. Cloudflare Pages deployment is
-# opt-in and transfers only the shaped static build artifact between jobs.
+# Every push to a pull request publishes that pull request's preview to
+# Cloudflare Pages under its own branch alias, behind Cloudflare Access. The
+# upload carries build products only: the workflow never grants the deployment
+# platform access to this repository's sources.
 
 on:
   pull_request:
@@ -16,9 +18,14 @@ concurrency:
 
 permissions:
   contents: read
+  pull-requests: write
 
 env:
   PRIMARY_NODE_VERSION: '24'
+  # Cloudflare Pages project receiving the upload. Its preview deployments are
+  # the surface the Access application protects; the project's production branch
+  # is deliberately a name no deployment uses, so no unprotected URL exists.
+  CF_PROJECT: dsh-build-preview
   # CI runs must never report to the production telemetry endpoint baked into
   # apps/cli/cordis.yml (AppCLIEntry disables the row when set).
   DSH_TELEMETRY_DISABLED: '1'
@@ -27,8 +34,6 @@ jobs:
   preview:
     runs-on: ubuntu-24.04
     name: cloudflare pages preview
-    permissions:
-      contents: read
     steps:
       - uses: actions/checkout@v6
         with:
@@ -81,53 +86,6 @@ jobs:
         run: |
           find apps/web/dist -name '*.map' -delete
           cp apps/web/dist/preview.html apps/web/dist/index.html
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: preview-static-build
-          path: apps/web/dist
-          if-no-files-found: error
-
-      - name: Report build-only validation
-        if: ${{ vars.DSH_PREVIEW_DEPLOY_ENABLED != 'true' || github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login == 'dependabot[bot]' }}
-        run: echo "PR preview build validation passed. This run validated build only; no preview was deployed." >> "$GITHUB_STEP_SUMMARY"
-
-  deploy:
-    if: ${{ vars.DSH_PREVIEW_DEPLOY_ENABLED == 'true' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]' }}
-    needs: preview
-    runs-on: ubuntu-24.04
-    name: cloudflare pages deploy
-    permissions:
-      pull-requests: write
-    env:
-      CF_PROJECT: ${{ vars.DSH_PREVIEW_CF_PROJECT }}
-    steps:
-      - name: Validate deployment configuration
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
-        run: |
-          node --input-type=module <<'NODE'
-          const required = [
-            ['DSH_PREVIEW_CF_PROJECT', process.env.CF_PROJECT, 'Set repository variable DSH_PREVIEW_CF_PROJECT to the Cloudflare Pages project name.'],
-            ['CLOUDFLARE_API_TOKEN', process.env.CLOUDFLARE_API_TOKEN, 'Set secret CLOUDFLARE_API_TOKEN to enable preview deployment.'],
-            ['CLOUDFLARE_ACCOUNT_ID', process.env.CLOUDFLARE_ACCOUNT_ID, 'Set secret CLOUDFLARE_ACCOUNT_ID to enable preview deployment.'],
-            ['CF_ACCESS_CLIENT_ID', process.env.CF_ACCESS_CLIENT_ID, 'Set secret CF_ACCESS_CLIENT_ID to verify the protected preview.'],
-            ['CF_ACCESS_CLIENT_SECRET', process.env.CF_ACCESS_CLIENT_SECRET, 'Set secret CF_ACCESS_CLIENT_SECRET to verify the protected preview.'],
-          ]
-          const missing = required.filter(([, value]) => !value)
-          for (const [, , message] of missing) {
-            console.error(`::error::${message}`)
-          }
-          if (missing.length > 0) process.exit(1)
-          NODE
-
-      - uses: actions/download-artifact@v8
-        with:
-          name: preview-static-build
-          path: apps/web/dist
 
       - name: Upload to Cloudflare Pages
         env:
@@ -195,7 +153,6 @@ jobs:
       - name: Comment the preview URL
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
         run: |
           marker='<!-- dsh-preview-url -->'
