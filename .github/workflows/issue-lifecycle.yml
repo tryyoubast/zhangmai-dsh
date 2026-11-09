@@ -11,8 +11,6 @@ on:
       - unlabeled
       - closed
       - reopened
-      - field_added
-      - field_removed
   pull_request:
     types:
       - opened
@@ -36,11 +34,7 @@ concurrency:
 jobs:
   lifecycle:
     name: Issue lifecycle
-    # Runs on every pull_request_review event so the check reports success rather
-    # than a gray "skipped" segment. The token-creating and board-mutating steps
-    # are gated at step level (a skipped step does not gray the job): only a
-    # changes_requested review drives the Project board; approved/commented
-    # reviews never mint a write-capable App token.
+    # Optional Project integration keeps a successful no-op job when disabled.
     runs-on: ubuntu-latest
     steps:
       - name: Check out trusted policy
@@ -48,17 +42,21 @@ jobs:
         with:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
+      - name: Validate Project configuration
+        if: ${{ vars.DSH_ISSUE_PROJECT_ENABLED == 'true' && github.event.sender.type != 'Bot' && github.event.sender.type != 'App' && github.event.pull_request.user.type != 'Bot' && github.event.pull_request.user.type != 'App' && (github.event_name != 'pull_request_review' || github.event.review.state == 'changes_requested') }}
+        run: node .github/issue-management/policy.mjs validate-config
       - name: Create project token
         id: app-token
-        if: ${{ github.event_name != 'pull_request_review' || github.event.review.state == 'changes_requested' }}
+        if: ${{ vars.DSH_ISSUE_PROJECT_ENABLED == 'true' && github.event.sender.type != 'Bot' && github.event.sender.type != 'App' && github.event.pull_request.user.type != 'Bot' && github.event.pull_request.user.type != 'App' && (github.event_name != 'pull_request_review' || github.event.review.state == 'changes_requested') }}
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
         with:
           client-id: ${{ vars.DSH_ISSUE_APP_CLIENT_ID }}
           private-key: ${{ secrets.DSH_ISSUE_APP_PRIVATE_KEY }}
-          owner: deepseek-harness
-          repositories: deepseek-harness
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
       - name: Handle repository event
-        if: ${{ github.event_name != 'pull_request_review' || github.event.review.state == 'changes_requested' }}
+        if: ${{ vars.DSH_ISSUE_PROJECT_ENABLED == 'true' && github.event.sender.type != 'Bot' && github.event.sender.type != 'App' && github.event.pull_request.user.type != 'Bot' && github.event.pull_request.user.type != 'App' && (github.event_name != 'pull_request_review' || github.event.review.state == 'changes_requested') }}
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          DSH_ISSUE_PROJECT_ENABLED: ${{ vars.DSH_ISSUE_PROJECT_ENABLED }}
         run: node .github/issue-management/policy.mjs lifecycle

@@ -5,34 +5,13 @@ import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 
 import config from './config.json' with { type: 'json' }
+import { isInvalidIssueLabel } from './pr-metadata.mjs'
+export { requiresPullRequestPolicy, validatePullRequest } from './pr-metadata.mjs'
 
 const API_VERSION = '2026-03-10'
 const AUDIT_MARKER = '<!-- dsh-issue-policy -->'
 const TYPES = new Set(['Idea', 'Feature', 'Bug', 'Research', 'Task'])
 const PRIORITIES = ['p0', 'p1', 'p2', 'p3']
-const PR_KINDS = new Set([
-  'kind/feature',
-  'kind/bug-fix',
-  'kind/doc',
-  'kind/testing',
-  'kind/cleanup',
-  'kind/dependency',
-])
-// Retired label aliases stay reserved so they cannot be recreated.
-const LEGACY_LABELS = new Set([
-  'kind/bug',
-  'kind/documentation',
-  'feature',
-  'bug-fix',
-  'doc',
-  'cleanup',
-  'testing',
-  'dependencies',
-  'ci',
-  'cli',
-  'llm',
-  'web-search',
-])
 const TERMINAL_STATUSES = new Set(['Done', 'No action'])
 const ACTIVE_STATUS_ORDER = config.statuses.filter((status) => !TERMINAL_STATUSES.has(status))
 const IMPLEMENTATION_PULL_REQUEST_ACTIONS = new Set([
@@ -60,21 +39,6 @@ if (typeof config.projectTimeZone !== 'string' || !config.projectTimeZone) {
   throw new Error('config.projectTimeZone 未设置')
 }
 Intl.DateTimeFormat('en-US', { timeZone: config.projectTimeZone })
-
-/**
- * Decide whether the human-review policy applies to a PR.
- * @param {{isDraft: boolean, authorType: string, reviewRequestCount: number, reviewCount: number}} input PR state.
- * @returns {boolean} Whether the PR policy is mandatory.
- */
-export function requiresPullRequestPolicy({
-  isDraft,
-  authorType,
-  reviewRequestCount,
-  reviewCount,
-}) {
-  const automated = authorType === 'Bot' || authorType === 'App'
-  return !isDraft && !automated && (reviewRequestCount > 0 || reviewCount > 0)
-}
 
 /**
  * Translate a repository event into one resolving-Issue lifecycle command.
@@ -243,64 +207,16 @@ export function validateIssue(issue) {
   return errors
 }
 
-function isInvalidIssueLabel(label) {
-  return label.startsWith('kind/') || LEGACY_LABELS.has(label)
-}
-
 /**
- * Validate PR metadata and its referenced Issues.
- * @param {{authorType: string, labels: string[], references: ReturnType<typeof parseReferences>, issues: Map<number, {priority: string|null}>}} input PR snapshot.
- * @returns {string[]} Validation errors.
+ * Validate that optional Project automation targets the triggering repository.
+ * @param {string|undefined} repository GitHub owner/repository identifier.
+ * @returns {void} Throws before credentials are requested when the configured target differs.
  */
-export function validatePullRequest(input) {
-  if (!requiresPullRequestPolicy(input)) return []
-  const errors = []
-  const kinds = input.labels.filter((label) => PR_KINDS.has(label))
-  const unknownKinds = input.labels.filter(
-    (label) => label.startsWith('kind/') && !PR_KINDS.has(label) && !LEGACY_LABELS.has(label),
-  )
-  const legacyLabels = input.labels.filter((label) => LEGACY_LABELS.has(label))
-  const sourceLabels = input.labels.filter((label) => label.startsWith('source/'))
-  const priorities = input.labels.filter((label) => PRIORITIES.includes(label))
-  const areas = input.labels.filter((label) => label.startsWith('area/'))
-
-  if (input.references.all.length === 0) errors.push('PR 正文必须引用至少一个同仓库 Issue')
-  if (kinds.length !== 1) {
-    errors.push(`PR 必须恰好有一个允许的 kind/*，当前为 ${kinds.length}`)
+export function validateProjectConfiguration(repository = process.env.GITHUB_REPOSITORY) {
+  const configured = `${config.organization}/${config.repository}`
+  if (!repository || repository.toLowerCase() !== configured.toLowerCase()) {
+    throw new Error(`Issue Project is configured for ${configured}, not ${repository ?? 'an unset GITHUB_REPOSITORY'}`)
   }
-  if (unknownKinds.length > 0) {
-    errors.push(`PR 含不支持的 kind/*：${unknownKinds.join(', ')}`)
-  }
-  if (legacyLabels.length > 0) errors.push(`PR 含旧版标签：${legacyLabels.join(', ')}`)
-  if (sourceLabels.length > 0) errors.push(`source/* 仅用于 Issue：${sourceLabels.join(', ')}`)
-  if (priorities.length > 1) errors.push(`PR 最多有一个 p0–p3，当前为 ${priorities.length}`)
-  if (areas.length === 0) errors.push('PR 必须至少有一个 area/*')
-  for (const number of input.references.all) {
-    if (!input.issues.has(number)) errors.push(`#${number} 不是同仓库 Issue`)
-  }
-
-  const resolving = input.references.resolving
-    .map((number) => [number, input.issues.get(number)])
-    .filter((entry) => entry[1])
-  if (resolving.length === 0) return errors
-
-  const issuePriorities = resolving
-    .map(([, issue]) => issue.priority?.toLowerCase())
-    .filter((priority) => PRIORITIES.includes(priority))
-  if (priorities.length === 0 && issuePriorities.length > 0) {
-    const highest = issuePriorities.sort(
-      (left, right) => PRIORITIES.indexOf(left) - PRIORITIES.indexOf(right),
-    )[0]
-    errors.push(`PR Priority 应为 ${highest}`)
-  } else if (priorities.length === 1 && issuePriorities.length !== resolving.length) {
-    errors.push('有 Priority 的解决型 PR 要求每个被解决 Issue 都设置 Priority')
-  } else if (priorities.length === 1) {
-    const highest = issuePriorities.sort(
-      (left, right) => PRIORITIES.indexOf(left) - PRIORITIES.indexOf(right),
-    )[0]
-    if (priorities[0] !== highest) errors.push(`PR Priority 应为 ${highest}`)
-  }
-  return errors
 }
 
 function token() {
@@ -660,23 +576,6 @@ async function resolvingReferencesSnapshot(number, pull) {
   }
 }
 
-async function pullRequestSnapshot(number) {
-  const [pull, reviewRequests, reviews] = await Promise.all([
-    api(`/repos/${config.organization}/${config.repository}/pulls/${number}`),
-    api(`/repos/${config.organization}/${config.repository}/pulls/${number}/requested_reviewers`),
-    api(`/repos/${config.organization}/${config.repository}/pulls/${number}/reviews?per_page=100`),
-  ])
-  const resolving = await resolvingReferencesSnapshot(number, pull)
-  return {
-    ...resolving,
-    isDraft: pull.draft,
-    authorType: pull.user?.type ?? 'User',
-    reviewRequestCount: reviewRequests.users.length + reviewRequests.teams.length,
-    reviewCount: reviews.length,
-    labels: pull.labels.map((label) => label.name),
-  }
-}
-
 async function lifecyclePullRequestSnapshot(number) {
   const pull = await api(`/repos/${config.organization}/${config.repository}/pulls/${number}`)
   return {
@@ -699,18 +598,6 @@ async function transitionResolvingIssues(pull, command) {
     await updateStatus(context, target)
     await auditIssue(number)
   }
-}
-
-async function runPullRequestCheck(event) {
-  const pull = await pullRequestSnapshot(event.pull_request.number)
-  const errors = validatePullRequest(pull)
-  if (errors.length > 0) {
-    for (const error of errors) process.stdout.write(`::error::${error}\n`)
-    throw new Error(`Issue policy 未通过，共 ${errors.length} 项`)
-  }
-  process.stdout.write(
-    requiresPullRequestPolicy(pull) ? 'Issue policy 通过。\n' : 'PR 尚未进入 Issue policy 强制范围。\n',
-  )
 }
 
 async function runLifecycle(eventName, event) {
@@ -747,9 +634,15 @@ function readEvent() {
 
 async function main(argv) {
   const [command] = argv
-  if (command === 'pr') await runPullRequestCheck(readEvent())
-  else if (command === 'lifecycle') await runLifecycle(process.env.GITHUB_EVENT_NAME, readEvent())
-  else throw new Error('用法：policy.mjs pr|lifecycle')
+  if (command === 'validate-config') validateProjectConfiguration()
+  else if (command === 'lifecycle') {
+    if (process.env.DSH_ISSUE_PROJECT_ENABLED !== 'true') {
+      process.stdout.write('Issue Project integration is disabled.\n')
+      return
+    }
+    validateProjectConfiguration()
+    await runLifecycle(process.env.GITHUB_EVENT_NAME, readEvent())
+  } else throw new Error('用法：policy.mjs validate-config|lifecycle')
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

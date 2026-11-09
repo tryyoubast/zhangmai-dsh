@@ -47,7 +47,7 @@ The area set is intentionally extensible. When no existing description honestly 
 
 Issues use native Issue Type instead of `kind/*`; their `area/*` labels remain optional. `source/*` labels record how an Issue was created and do not apply to pull requests. Priority, GitHub defaults, and workflow triggers remain independent operational metadata.
 
-The repository lifecycle removes pull request `kind/*` labels and reserved aliases from an Issue before auditing it. Policy comments report only violations whose intended value cannot be derived from the Issue, such as a missing native Type or an unsupported Priority.
+When [Project integration is enabled](../../../../.github/issue-management/README.md#optional-issue-project-integration), the repository lifecycle removes pull request `kind/*` labels and reserved aliases from an Issue before auditing it. Policy comments report only violations whose intended value cannot be derived from the Issue, such as a missing native Type or an unsupported Priority.
 
 Label migrations preserve meaning before removing aliases: add the canonical replacement, verify the labelable, then remove the obsolete assignment. A label is deleted only after no pull request or Issue still uses it, and unrelated labels are never replaced as a set.
 
