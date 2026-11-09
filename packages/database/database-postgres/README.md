@@ -72,7 +72,7 @@ $env:DATABASE_MIGRATION_URL = "postgresql://dsh_migration_login:password@host:54
 pnpm --filter @deepseek-ai/dsh-database-postgres db:migrate
 ```
 
-Build the package before running its published migration entry point. `db:migrate` uses the packaged SQL journal and checksums through the controlled runner; production deployments must not use `drizzle-kit migrate`, `push`, or `DATABASE_URL` for DDL. `db:check` reads `DATABASE_MIGRATION_URL` for Drizzle's static journal check.
+Build the package before running its published migration entry point. `db:migrate` uses the packaged SQL journal and checksums through the controlled runner; production deployments must not use `drizzle-kit migrate`, `push`, or `DATABASE_URL` for DDL. The published package includes `migrations/*.sql`, `migrations/meta/_journal.json`, `scripts/migrate.js`, and `scripts/bootstrap-migrator-ownership.sql` beside built artifacts; Drizzle configuration, schema source, and migration snapshots remain development inputs. `db:check` reads `DATABASE_MIGRATION_URL` for Drizzle's static journal check in a source checkout.
 
 Runtime roles have no schema `CREATE`, `CREATEDB`, `CREATEROLE`, `SUPERUSER`, or `BYPASSRLS` capability. The service transaction sets `app.user_id`, `app.workspace_id`, `app.actor_type`, and `app.agent_principal_id` with transaction-local settings after authentication. This trusted service transaction context uses PostgreSQL GUCs; it does not defend against stolen runtime credentials or arbitrary SQL execution. Credentials and SQL access must not be exposed to model-generated SQL.
 

@@ -57,16 +57,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function assertNever(_value: never): never {
-  throw new Error('unsupported generated target type')
-}
-
-function text(record: Record<string, unknown>, name: string): string
-function text(record: Record<string, unknown>, name: string, required: false): string | undefined
-function text(record: Record<string, unknown>, name: string, required = true): string | undefined {
+function text(record: Record<string, unknown>, name: string): string {
   const value = record[name]
   if (typeof value === 'string' && value.trim() !== '') return value.trim()
-  if (!required && value === undefined) return undefined
   throw new Error(`${name} is required for generated ${String(record.targetType ?? record.type)}`)
 }
 
@@ -206,7 +199,6 @@ function canonicalProposalContent(
         source_chapter_id: aliasText(record, 'source_chapter_id', 'sourceChapterId'),
         source_chapter_version_id: aliasText(record, 'source_chapter_version_id', 'sourceChapterVersionId'),
       }
-    default: return assertNever(type)
   }
 }
 
@@ -433,7 +425,6 @@ export class GenerationMaterializationService {
         targetId = await this.writer.createEntityRelationDraft(input)
         break
       }
-      default: assertNever(type)
     }
     const clientKey = record.clientKey
     if (typeof clientKey === 'string' && clientKey.trim() !== '') references.set(clientKey, targetId)

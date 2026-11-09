@@ -61,6 +61,8 @@ kind: "package-library"
 
 `PostgresNovelContextRepository` 是生产检索适配器。它在 `withRequestContext` 事务中读取大纲、章节、摘要、事实、时间线和小说实体，先使用每个来源的 GIN 表达式索引进行 PostgreSQL 全文匹配，再计算相关度排序，限制片段大小，并在写入新快照前校验哈希。重试和续写按原顺序重放数据库快照，不会再次读取来源实体。宿主仍需注入真实 LLM 适配器和持久化结果仓库；生产结果仓库必须实现 `withIdempotencyLock` 或等价的数据库级幂等声明/锁。
 
+`validateNovelGenerationAdapterResult()` 校验后始终返回 `records` 与 `proposals` 两个数组；省略的数组归一为空数组。物化只分派共享类型守卫接受的目标类型。结果仓库在进入普通请求事务或已有幂等事务前，校验工作区和 agent 身份。
+
 </details>
 
 -----

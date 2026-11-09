@@ -201,6 +201,15 @@ function pathParts(path: string): string[] {
   return new URL(path, 'https://dsh.invalid').pathname.split('/').filter(Boolean)
 }
 
+// pathParts produces dense, non-empty segments; route length also narrows indexed segments.
+function hasPathParts(parts: string[], length: 2): parts is [string, string]
+function hasPathParts(parts: string[], length: 3): parts is [string, string, string]
+function hasPathParts(parts: string[], length: 4): parts is [string, string, string, string]
+function hasPathParts(parts: string[], length: 5): parts is [string, string, string, string, string]
+function hasPathParts(parts: string[], length: number): boolean {
+  return parts.length === length
+}
+
 function jsonBody(responseValue: unknown, status = 200): NovelAuthoringHttpResponse {
   return response(status, { ok: true, ...typeof responseValue === 'object' && responseValue !== null ? responseValue : { id: responseValue } })
 }
@@ -254,7 +263,7 @@ export class NovelAuthoringHttpController {
       const method = request.method.toUpperCase()
       const parts = pathParts(request.path)
       const body = bodyOf(request)
-      if (method === 'POST' && parts.length === 2 && parts[0] === 'api' && parts[1] === 'workspaces') {
+      if (method === 'POST' && hasPathParts(parts, 2) && parts[0] === 'api' && parts[1] === 'workspaces') {
         const name = stringField(body, 'name')
         if (name === null) return response(400, { error: 'invalid_request' })
         return jsonBody(await this.services.workspace.createWorkspace({ name }))
@@ -262,31 +271,31 @@ export class NovelAuthoringHttpController {
       if (method === 'GET' && parts.join('/') === 'api/workspaces') {
         return jsonBody({ workspaces: await this.services.workspace.listWorkspaces() })
       }
-      if (method === 'POST' && parts.length === 4 && parts[0] === 'api' && parts[1] === 'workspaces' && parts[3] === 'members') {
+      if (method === 'POST' && hasPathParts(parts, 4) && parts[0] === 'api' && parts[1] === 'workspaces' && parts[3] === 'members') {
         const userId = stringField(body, 'userId')
         const role = memberRole(body)
         if (userId === null || role === null || this.services.workspace.inviteMember === undefined) return response(404, { error: 'not_found' })
-        await this.services.workspace.inviteMember(this.workspace(parts[2] ?? ''), userId, role)
+        await this.services.workspace.inviteMember(this.workspace(parts[2]), userId, role)
         return jsonBody({ status: 'invited' })
       }
-      if (method === 'GET' && parts.length === 4 && parts[0] === 'api' && parts[1] === 'workspaces' && parts[3] === 'members') {
+      if (method === 'GET' && hasPathParts(parts, 4) && parts[0] === 'api' && parts[1] === 'workspaces' && parts[3] === 'members') {
         if (this.services.workspace.listMembers === undefined) return response(404, { error: 'not_found' })
-        return jsonBody({ members: await this.services.workspace.listMembers(this.workspace(parts[2] ?? '')) })
+        return jsonBody({ members: await this.services.workspace.listMembers(this.workspace(parts[2])) })
       }
-      if (method === 'PATCH' && parts.length === 5 && parts[0] === 'api' && parts[1] === 'workspaces' && parts[3] === 'members') {
+      if (method === 'PATCH' && hasPathParts(parts, 5) && parts[0] === 'api' && parts[1] === 'workspaces' && parts[3] === 'members') {
         const role = memberRole(body)
         if (role === null || this.services.workspace.changeMemberRole === undefined) return response(404, { error: 'not_found' })
-        await this.services.workspace.changeMemberRole(this.workspace(parts[2] ?? ''), parts[4] ?? '', role)
+        await this.services.workspace.changeMemberRole(this.workspace(parts[2]), parts[4], role)
         return jsonBody({ status: 'updated' })
       }
-      if (method === 'DELETE' && parts.length === 5 && parts[0] === 'api' && parts[1] === 'workspaces' && parts[3] === 'members') {
+      if (method === 'DELETE' && hasPathParts(parts, 5) && parts[0] === 'api' && parts[1] === 'workspaces' && parts[3] === 'members') {
         if (this.services.workspace.revokeMember === undefined) return response(404, { error: 'not_found' })
-        await this.services.workspace.revokeMember(this.workspace(parts[2] ?? ''), parts[4] ?? '')
+        await this.services.workspace.revokeMember(this.workspace(parts[2]), parts[4])
         return jsonBody({ status: 'revoked' })
       }
-      if (method === 'POST' && parts.length === 3 && parts[0] === 'api' && parts[1] === 'workspaces' && parts[2] !== '') {
+      if (method === 'POST' && hasPathParts(parts, 3) && parts[0] === 'api' && parts[1] === 'workspaces') {
         const action = stringField(body, 'action')
-        const workspaceId = this.workspace(parts[2] ?? '')
+        const workspaceId = this.workspace(parts[2])
         if (action === 'transfer-ownership' && this.services.workspace.transferOwnership !== undefined) {
           const userId = stringField(body, 'userId')
           if (userId === null) return response(400, { error: 'invalid_request' })
@@ -302,18 +311,18 @@ export class NovelAuthoringHttpController {
           return jsonBody({ status: 'active' })
         }
       }
-      if (method === 'POST' && parts.length === 4 && parts[0] === 'api' && parts[1] === 'workspaces' && parts[3] === 'novels') {
+      if (method === 'POST' && hasPathParts(parts, 4) && parts[0] === 'api' && parts[1] === 'workspaces' && parts[3] === 'novels') {
         const title = stringField(body, 'title')
         if (title === null) return response(400, { error: 'invalid_request' })
-        const input: NovelCreateInput = { workspaceId: this.workspace(parts[2] ?? ''), title }
+        const input: NovelCreateInput = { workspaceId: this.workspace(parts[2]), title }
         return jsonBody(await this.services.workspace.createNovel(input))
       }
-      if (method === 'POST' && parts.length === 4 && parts[0] === 'api' && parts[1] === 'novels' && parts[3] === 'generation-runs') {
+      if (method === 'POST' && hasPathParts(parts, 4) && parts[0] === 'api' && parts[1] === 'novels' && parts[3] === 'generation-runs') {
         const instruction = stringField(body, 'instruction')
         const contextLimit = typeof body.contextLimit === 'number' ? body.contextLimit : 8
         const input: GenerationRunInput = {
           workspaceId: this.workspace(stringField(body, 'workspaceId') ?? ''),
-          novelId: parts[2] ?? '',
+          novelId: parts[2],
           model: stringField(body, 'model') ?? 'configured-provider',
           promptVersion: stringField(body, 'promptVersion') ?? 'v1',
           sourceSessionId: stringField(body, 'sourceSessionId') ?? '00000000-0000-0000-0000-000000000000',
@@ -327,11 +336,8 @@ export class NovelAuthoringHttpController {
         }
         return jsonBody(await this.services.authoring.createGenerationRun(input))
       }
-      if (method === 'POST' && parts.length === 4 && parts[0] === 'api' && parts[1] === 'novels' && parts[3] === 'generate') {
+      if (method === 'POST' && hasPathParts(parts, 4) && parts[0] === 'api' && parts[1] === 'novels' && parts[3] === 'generate') {
         const novelId = parts[2]
-        if (novelId === undefined || novelId === '') {
-          return response(404, { error: 'not_found' })
-        }
         const instruction = stringField(body, 'instruction')
         const idempotencyKey = stringField(body, 'idempotencyKey')
         const workspaceId = this.workspace(stringField(body, 'workspaceId') ?? '')
@@ -361,7 +367,7 @@ export class NovelAuthoringHttpController {
         }
         return jsonBody(await this.services.generation.generate(input))
       }
-      if (method === 'POST' && parts.length === 4 && parts[0] === 'api' && parts[1] === 'novels' && parts[3] === 'proposals') {
+      if (method === 'POST' && hasPathParts(parts, 4) && parts[0] === 'api' && parts[1] === 'novels' && parts[3] === 'proposals') {
         if (this.principal.actorType !== 'agent') return response(404, { error: 'not_found' })
         const targetType = stringField(body, 'targetType')
         if (!isNovelDraftTargetType(targetType)) return response(400, { error: 'invalid_request' })
@@ -371,7 +377,7 @@ export class NovelAuthoringHttpController {
         const input: DraftProposalInput = {
           generationRunId: stringField(body, 'generationRunId') ?? '',
           workspaceId: this.workspace(stringField(body, 'workspaceId') ?? ''),
-          novelId: parts[2] ?? '',
+          novelId: parts[2],
           targetType,
           operation: (stringField(body, 'operation') ?? 'create') as DraftProposalInput['operation'],
           proposedContent: typeof body.proposedContent === 'object' && body.proposedContent !== null && !Array.isArray(body.proposedContent) ? body.proposedContent as Record<string, unknown> : {},
@@ -384,17 +390,17 @@ export class NovelAuthoringHttpController {
         if (input.generationRunId === '' || input.idempotencyKey === '') return response(400, { error: 'invalid_request' })
         return jsonBody(await this.services.authoring.createDraftProposal(input))
       }
-      if (method === 'POST' && parts.length === 4 && parts[0] === 'api' && parts[1] === 'proposals' && parts[3] === 'review') {
+      if (method === 'POST' && hasPathParts(parts, 4) && parts[0] === 'api' && parts[1] === 'proposals' && parts[3] === 'review') {
         const decision = stringField(body, 'decision') as 'approved' | 'rejected' | 'expired' | 'draft' | null
         if (decision === null || !['approved', 'rejected', 'expired', 'draft'].includes(decision)) return response(400, { error: 'invalid_request' })
-        await this.services.review.review({ workspaceId: this.principal.workspaceId, proposalId: parts[2] ?? '', decision })
+        await this.services.review.review({ workspaceId: this.principal.workspaceId, proposalId: parts[2], decision })
         return jsonBody({ status: decision })
       }
-      if (method === 'POST' && parts.length === 4 && parts[0] === 'api' && parts[1] === 'proposals' && parts[3] === 'publish') {
-        await this.services.publication.publish({ workspaceId: this.principal.workspaceId, proposalId: parts[2] ?? '' })
+      if (method === 'POST' && hasPathParts(parts, 4) && parts[0] === 'api' && parts[1] === 'proposals' && parts[3] === 'publish') {
+        await this.services.publication.publish({ workspaceId: this.principal.workspaceId, proposalId: parts[2] })
         return jsonBody({ status: 'published' })
       }
-      if (method === 'POST' && parts.length === 4 && parts[0] === 'api' && parts[1] === 'proposals' && parts[3] === 'rollback') {
+      if (method === 'POST' && hasPathParts(parts, 4) && parts[0] === 'api' && parts[1] === 'proposals' && parts[3] === 'rollback') {
         const targetType = stringField(body, 'targetType')
         const targetId = stringField(body, 'targetId')
         const versionNo = body.versionNo
@@ -403,8 +409,8 @@ export class NovelAuthoringHttpController {
         await this.services.publication.rollback(input)
         return jsonBody({ status: 'rolled_back' })
       }
-      if (method === 'GET' && parts.length === 5 && parts[0] === 'api' && parts[1] === 'novels' && parts[3] === 'context') {
-        return jsonBody({ context: await this.services.longform.listContextItems(this.principal.workspaceId, parts[2] ?? '', parts[4] ?? '') })
+      if (method === 'GET' && hasPathParts(parts, 5) && parts[0] === 'api' && parts[1] === 'novels' && parts[3] === 'context') {
+        return jsonBody({ context: await this.services.longform.listContextItems(this.principal.workspaceId, parts[2], parts[4]) })
       }
       return response(404, { error: 'not_found' })
     } catch (error) {

@@ -72,7 +72,7 @@ $env:DATABASE_MIGRATION_URL = "postgresql://dsh_migration_login:password@host:54
 pnpm --filter @deepseek-ai/dsh-database-postgres db:migrate
 ```
 
-先构建包，再运行发布包所带的迁移入口。`db:migrate` 通过受控 runner 应用打包的 SQL 日志和校验和；生产部署不得使用 `drizzle-kit migrate`、`push` 或用 `DATABASE_URL` 执行 DDL。Drizzle 静态日志检查 `db:check` 读取 `DATABASE_MIGRATION_URL`。
+先构建包，再运行发布包所带的迁移入口。`db:migrate` 通过受控 runner 应用打包的 SQL 日志和校验和；生产部署不得使用 `drizzle-kit migrate`、`push` 或用 `DATABASE_URL` 执行 DDL。发布包在构建产物之外包含 `migrations/*.sql`、`migrations/meta/_journal.json`、`scripts/migrate.js` 与 `scripts/bootstrap-migrator-ownership.sql`；Drizzle 配置、schema 源码和迁移快照仅用作开发输入。Drizzle 静态日志检查 `db:check` 在源码检出中读取 `DATABASE_MIGRATION_URL`。
 
 运行时角色不具备 Schema `CREATE`、`CREATEDB`、`CREATEROLE`、`SUPERUSER` 或 `BYPASSRLS` 能力。可信后端在事务内完成认证后，使用事务级局部设置写入 `app.user_id`、`app.workspace_id`、`app.actor_type` 和 `app.agent_principal_id`。这个可信服务端事务上下文使用 PostgreSQL GUC；它不能防御运行时数据库凭据泄露或任意 SQL 执行。不得把凭据或 SQL 访问暴露给模型生成的 SQL。
 

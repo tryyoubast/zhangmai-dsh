@@ -59,6 +59,8 @@ kind: "package-reference"
 
 Worker 提案请求必须提供受支持的固定 `targetType`。目标类型缺失、为空或不受支持时，控制器使用创作库共享的类型守卫，在调用创作服务前返回 `400 invalid_request`。
 
+路由匹配先移除空路径段，再校验段数。只有匹配的路由才向服务传入工作区、小说或提案 ID；不匹配的路径返回 `404 not_found`。
+
 </details>
 
 -----

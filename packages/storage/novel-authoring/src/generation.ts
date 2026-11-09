@@ -173,7 +173,7 @@ function validateDraftTree(value: unknown, path: string): void {
  * @returns Validated record and proposal arrays; either omitted array becomes empty.
  * @throws For malformed arrays, non-object items, SQL or DDL fields, or status fields other than draft.
  */
-export function validateNovelGenerationAdapterResult(value: unknown): NovelGenerationAdapterResult {
+export function validateNovelGenerationAdapterResult(value: unknown): Required<NovelGenerationAdapterResult> {
   if (!isRecord(value)) throw new Error('generation adapter must return structured output')
   const records = value.records
   const proposals = value.proposals
@@ -360,8 +360,8 @@ export class LongformGenerationService {
       novelId: input.novelId,
       idempotencyKey: input.idempotencyKey,
       selectedContext: selectedContext.slice(),
-      records: generated.records ?? [],
-      proposals: generated.proposals ?? [],
+      records: generated.records,
+      proposals: generated.proposals,
     }
     try {
       await this.dependencies.resultRepository.save(result)

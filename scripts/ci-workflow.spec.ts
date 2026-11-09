@@ -216,7 +216,7 @@ describe('CI workflow', () => {
 
     // windows-coverage uses the lower 4-partition profile.
     expect(windowsCoverage.name).toBe('windows node 24 / coverage')
-    expect(windowsCoverage.env).toMatchObject({ DSH_COVERAGE_PARTITIONS: '4' })
+    expect(windowsCoverage.env).toHaveProperty('DSH_COVERAGE_PARTITIONS')
     const coverageSteps = windowsCoverage.steps as unknown[]
     const coverageCommands = coverageSteps.filter((step): step is Record<string, unknown> & { run: string } => (
       isRecord(step) && typeof step.run === 'string'
@@ -336,9 +336,9 @@ describe('CI workflow', () => {
       }, { timeout: 1000 })
     }
     for (const [name, selector, variable, pool, hosted] of [
-      ['linux gates', selectors.linux, 'DSH_CI_FAILOVER_LINUX', ['self-hosted', 'linux', 'x64', 'vm-backup'], 'dsh-ubuntu-24-04-16core'],
-      ['linux aggregate', selectors.linuxAggregate, 'DSH_CI_FAILOVER_LINUX', ['self-hosted', 'linux', 'x64', 'vm-backup'], 'ubuntu-latest'],
-      ['windows lanes', selectors.windows, 'DSH_CI_FAILOVER_WINDOWS', ['self-hosted', 'dsh-win-ci', 'windows'], 'dsh-windows-2025-16core'],
+      ['linux gates', selectors.linux, 'DSH_CI_FAILOVER_LINUX', ['self-hosted', 'linux', 'x64', 'vm-backup'], 'ubuntu-24.04'],
+      ['linux aggregate', selectors.linuxAggregate, 'DSH_CI_FAILOVER_LINUX', ['self-hosted', 'linux', 'x64', 'vm-backup'], 'ubuntu-24.04'],
+      ['windows lanes', selectors.windows, 'DSH_CI_FAILOVER_WINDOWS', ['self-hosted', 'dsh-win-ci', 'windows'], 'windows-2025'],
     ] as const) {
       expect(evaluate(selector, { [variable]: 'blacksmith' }), `${name} blacksmith value`).toMatch(/^blacksmith-/)
       expect(evaluate(selector, { [variable]: 'selfhosted' }), `${name} selfhosted value`).toEqual(pool)
@@ -369,6 +369,85 @@ describe('CI workflow', () => {
     // possible, so the first failure must not truncate the rest.
     expect(windowsObservational.env).toBeDefined()
     expect(windowsObservational.env).not.toMatchObject({ DSH_GATE_FAIL_FAST: '1' })
+  })
+
+  it('defaults each primary lane to standard hosted runners and opts into enterprise pools', () => {
+    const workflow = loadWorkflow('.github/workflows/ci.yml')
+    for (const [jobName, hosted, enterprise] of [
+      ['node-24', 'ubuntu-24.04', 'dsh-ubuntu-24-04-16core'],
+      ['node-24-coverage', 'ubuntu-24.04', 'dsh-ubuntu-24-04-16core'],
+      ['node-24-consumers', 'ubuntu-24.04', 'dsh-ubuntu-24-04-16core'],
+      ['all-checks-passed', 'ubuntu-24.04', 'ubuntu-24.04'],
+      ['windows-build', 'windows-2025', 'dsh-windows-2025-16core'],
+      ['windows-coverage', 'windows-2025', 'dsh-windows-2025-16core'],
+      ['windows-native-tests', 'windows-2025', 'dsh-windows-2025-16core'],
+      ['windows-observational', 'windows-2025', 'dsh-windows-2025-16core'],
+    ] as const) {
+      const job = workflowJob(workflow, jobName)
+      for (const profile of ['', 'hosted', 'unexpected', 'enterprise']) {
+        const vars = { DSH_CI_RUNNER_PROFILE: profile }
+        expect(evaluateRunnerValue(job['runs-on'], vars), jobName + ' ' + profile)
+          .toBe(profile === 'enterprise' ? enterprise : hosted)
+        const variable = jobName.startsWith('windows-') ? 'DSH_CI_FAILOVER_WINDOWS' : 'DSH_CI_FAILOVER_LINUX'
+        expect(evaluateRunnerValue(job['runs-on'], { ...vars, [variable]: 'blacksmith' }), jobName + ' failover priority')
+          .toBe(jobName.startsWith('windows-') ? 'blacksmith-16vcpu-windows-2025'
+            : jobName === 'all-checks-passed' ? 'blacksmith-4vcpu-ubuntu-2404' : 'blacksmith-16vcpu-ubuntu-2404')
+        expect(evaluateRunnerValue(job['runs-on'], { ...vars, [variable]: 'selfhosted' }, 'dependabot[bot]'), jobName + ' Dependabot fallback')
+          .toBe(profile === 'enterprise' ? enterprise : hosted)
+      }
+    }
+  })
+
+  it('keeps Linux and Windows resource switches independent', () => {
+    const workflow = loadWorkflow('.github/workflows/ci.yml')
+    for (const [variable, expectedLinux, expectedWindows] of [
+      ['DSH_CI_FAILOVER_LINUX', '4', '2'], ['DSH_CI_FAILOVER_WINDOWS', '2', '4'],
+    ] as const) {
+      for (const [jobName, expected] of [
+        ['node-24-coverage', expectedLinux], ['windows-coverage', expectedWindows],
+      ]) {
+        const job = workflowJob(workflow, jobName!)
+        if (!isRecord(job.env)) throw new TypeError('Coverage jobs must define env')
+        expect(evaluateRunnerValue(job.env.DSH_COVERAGE_PARTITIONS, { [variable]: 'blacksmith' })).toBe(expected)
+      }
+    }
+  })
+
+  it('bounds standard hosted coverage and heavy gates while preserving larger-pool budgets', () => {
+    const workflow = loadWorkflow('.github/workflows/ci.yml')
+    const profiles: ReadonlyArray<readonly [Record<string, string>, boolean, string]> = [
+      [{}, false, 'maintainer'],
+      [{ DSH_CI_RUNNER_PROFILE: 'enterprise' }, true, 'maintainer'],
+      [{ DSH_CI_FAILOVER_LINUX: 'blacksmith', DSH_CI_FAILOVER_WINDOWS: 'blacksmith' }, true, 'maintainer'],
+      [{ DSH_CI_FAILOVER_LINUX: 'selfhosted', DSH_CI_FAILOVER_WINDOWS: 'selfhosted' }, true, 'maintainer'],
+      [{ DSH_CI_FAILOVER_LINUX: 'selfhosted', DSH_CI_FAILOVER_WINDOWS: 'selfhosted' }, false, 'dependabot[bot]'],
+    ]
+    for (const [vars, larger, login] of profiles) {
+      for (const jobName of ['node-24-coverage', 'windows-coverage']) {
+        const job = workflowJob(workflow, jobName)
+        if (!isRecord(job.env)) throw new TypeError(jobName + ' must define env')
+        for (const [key, expected] of Object.entries({
+          DSH_COVERAGE_PARTITIONS: larger ? '4' : '2',
+          DSH_COVERAGE_MAX_WORKERS: larger ? '6' : '1',
+          DSH_GATE_CONCURRENCY: larger ? '3' : '1',
+        })) expect(evaluateRunnerValue(job.env[key], vars, login), jobName + ' ' + key).toBe(expected)
+      }
+      const staticJob = workflowJob(workflow, 'node-24')
+      const consumers = workflowJob(workflow, 'node-24-consumers')
+      if (!isRecord(staticJob.env) || !isRecord(consumers.env)) throw new TypeError('Linux gates must define env')
+      expect(evaluateRunnerValue(staticJob.env.DSH_GATE_CONCURRENCY, vars, login)).toBe(larger ? '8' : '2')
+      for (const [key, oldValue] of Object.entries({
+        DSH_GATE_CONCURRENCY: '10', DSH_OXLINT_THREADS: '8', DSH_PUBLINT_CONCURRENCY: '8',
+        DSH_WEB_SNAPSHOT_WORKERS: '6', DSH_SNAPSHOT_MAX_CONCURRENCY: vars.DSH_CI_FAILOVER_LINUX === 'selfhosted' ? '12' : '32',
+      })) expect(evaluateRunnerValue(consumers.env[key], vars, login), key).toBe(larger ? oldValue : '2')
+      const windows = workflowJob(workflow, 'windows-build')
+      if (!isRecord(windows.env)) throw new TypeError('Windows builds must define env')
+      expect(evaluateRunnerValue(windows.env.DSH_GATE_CONCURRENCY, vars, login)).toBe(larger ? '' : '2')
+      const observational = workflowJob(workflow, 'windows-observational')
+      if (!isRecord(observational.env)) throw new TypeError('Windows observational gates must define env')
+      expect(evaluateRunnerValue(observational.env.DSH_GATE_CONCURRENCY, vars, login)).toBe(larger ? '' : '2')
+      expect(evaluateRunnerValue(observational.env.DSH_PUBLINT_CONCURRENCY, vars, login)).toBe(larger ? '8' : '2')
+    }
   })
 
   it('gates standalone keyless blacksmith jobs and benchmark tiers on the failover variables', () => {
@@ -1118,4 +1197,11 @@ function workflowJob(workflow: Record<string, unknown>, job: string): Record<str
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function evaluateRunnerValue(value: unknown, vars: Record<string, string>, login = 'maintainer'): unknown {
+  if (typeof value !== 'string' || !value.startsWith('${{')) return value
+  return runInNewContext(value.trim().slice(3, -2), {
+    vars, fromJSON: JSON.parse, github: { event: { pull_request: { user: { login } } } },
+  }, { timeout: 1000 }) as unknown
 }

@@ -28,6 +28,8 @@ A build-only benchmark does not deploy, access Cloudflare credentials, or post p
 
 Runner selection does not alter pull-request events, per-PR cancellation, immutable installation, restore-only dependency caching, full workspace build, preview packing, sourcemap removal, or the preview page copied to the deployment root. Cloudflare uploads only the built site to the PR branch alias. The protected-image check requires HTTP 200, no transport content encoding, and gzip magic bytes; the URL comment remains idempotent. Dependabot and other PR authors remain on GitHub-hosted machines.
 
+Every PR builds its preview without deployment credentials. Publication requires repository variable `DSH_CLOUDFLARE_PREVIEW_ENABLED=true`, a head branch in the same repository, and a human PR author. Upload, protected-image verification, and URL comments are skipped otherwise. Enabled publication requires secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `CF_ACCESS_CLIENT_ID`, and `CF_ACCESS_CLIENT_SECRET`; a missing credential fails explicitly before upload. Set `CF_PROJECT` in the workflow to the intended Pages project before enabling publication.
+
 <a id="dev-note"></a>
 
 ## Dev Note

@@ -59,6 +59,8 @@ The [implementation](src/index.ts) owns dispatch and response mapping; [Web adap
 
 Worker proposal requests require a supported fixed `targetType`. Missing, empty, or unsupported values return `400 invalid_request` before the authoring service is called, using the authoring library's shared type guard.
 
+Route matching validates the segment count after removing empty path segments. Only matching routes supply workspace, novel, or proposal IDs to services; unmatched paths return `404 not_found`.
+
 </details>
 
 -----

@@ -333,10 +333,12 @@ describe('PostgreSQL authoring hardening migration', () => {
     }
     expect(packageJson.files).toContain('lib/index.js')
     expect(packageJson.files).toContain('lib/types/**/*.d.ts')
-    expect(packageJson.files).toContain('migrations/**/*.sql')
+    expect(packageJson.files).toContain('migrations/*.sql')
     expect(packageJson.files).toContain('migrations/meta/_journal.json')
-    expect(packageJson.files).toContain('scripts/**/*.js')
-    expect(packageJson.files).toContain('scripts/**/*.sql')
+    expect(packageJson.files).toContain('scripts/migrate.js')
+    expect(packageJson.files).toContain('scripts/bootstrap-migrator-ownership.sql')
+    expect(packageJson.files).not.toContain('scripts/**/*.js')
+    expect(packageJson.files).not.toContain('scripts/**/*.sql')
   })
 
   it('keeps pooled connections releasable when migration cleanup fails', () => {

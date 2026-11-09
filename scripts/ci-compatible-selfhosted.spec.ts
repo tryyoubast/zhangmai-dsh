@@ -49,36 +49,36 @@ function route(options: { mode?: string; author?: string; repository?: string; f
         head: { repo: { full_name: options.repository ?? 'deepseek-harness/deepseek-harness', fork: options.fork ?? false } },
       } },
     },
-    matrix: { runner: 'ubuntu-latest' },
+    matrix: { runner: 'ubuntu-24.04' },
   })
 }
 
 describe('Node compatibility self-hosted routing', () => {
   it('uses the Linux pool only for opted-in repository-owned PRs', () => {
     expect(route()).toEqual(labels)
-    for (const mode of ['', 'hosted', 'unexpected']) expect(route({ mode })).toBe('ubuntu-latest')
+    for (const mode of ['', 'hosted', 'unexpected']) expect(route({ mode })).toBe('ubuntu-24.04')
     // The blacksmith value routes the compatibility legs onto Blacksmith's
     // standard Linux runner regardless of PR ownership (ephemeral runners).
     expect(route({ mode: 'blacksmith' })).toBe('blacksmith-4vcpu-ubuntu-2404')
-    expect(route({ author: 'dependabot[bot]', actor: 'maintainer' })).toBe('ubuntu-latest')
-    expect(route({ repository: 'outsider/fork', fork: true })).toBe('ubuntu-latest')
-    expect(route({ repository: 'outsider/fork', fork: false })).toBe('ubuntu-latest')
-    expect(route({ fork: true })).toBe('ubuntu-latest')
-    expect(route({ repository: '' })).toBe('ubuntu-latest')
+    expect(route({ author: 'dependabot[bot]', actor: 'maintainer' })).toBe('ubuntu-24.04')
+    expect(route({ repository: 'outsider/fork', fork: true })).toBe('ubuntu-24.04')
+    expect(route({ repository: 'outsider/fork', fork: false })).toBe('ubuntu-24.04')
+    expect(route({ fork: true })).toBe('ubuntu-24.04')
+    expect(route({ repository: '' })).toBe('ubuntu-24.04')
   })
 
   it('preserves all three required version jobs and their concurrency', () => {
     expect(job.if).toBe("github.event_name == 'pull_request'")
     expect(job.strategy['fail-fast']).toBe(false)
     expect(job.strategy.matrix.include).toEqual([
-      { node: '22.19', name: 'node 22.19', runner: 'ubuntu-latest', gate_concurrency: '1' },
-      { node: '24.9', name: 'node 24.9', runner: 'ubuntu-latest', gate_concurrency: '1' },
-      { node: 26, name: 'node 26', runner: 'ubuntu-latest', gate_concurrency: '1' },
+      { node: '22.19', name: 'node 22.19', runner: 'ubuntu-24.04', gate_concurrency: '1' },
+      { node: '24.9', name: 'node 24.9', runner: 'ubuntu-24.04', gate_concurrency: '1' },
+      { node: 26, name: 'node 26', runner: 'ubuntu-24.04', gate_concurrency: '1' },
     ])
     expect(job.env.DSH_GATE_CONCURRENCY).toBe('${{ matrix.gate_concurrency }}')
     expect(job.steps.map(step => step.run)).toContain('pnpm run check:node-compat')
     expect(job.steps.map(step => step.run)).toContain('pnpm exec vitest run packages/boot/app-boot/tests/loader-shape.compat.spec.ts')
-    expect(workflow.jobs['python-sdk']['runs-on']).toBe('ubuntu-latest')
+    expect(workflow.jobs['python-sdk']['runs-on']).toBe('ubuntu-24.04')
   })
 
   it('isolates version installs and enables hosted package caching only on hosted runners', () => {

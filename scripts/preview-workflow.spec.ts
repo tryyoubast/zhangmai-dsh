@@ -10,7 +10,7 @@ const workflow = yaml.load(readFileSync(resolve(import.meta.dirname, '../.github
   env: Record<string, string>
   jobs: Record<'preview', {
     'runs-on': string
-    steps: Array<{ name?: string; uses?: string; run?: string; with?: Record<string, unknown>; env?: Record<string, string> }>
+    steps: Array<{ name?: string; uses?: string; if?: string; run?: string; with?: Record<string, unknown>; env?: Record<string, string> }>
   }>
 }
 const preview = workflow.jobs.preview
@@ -59,5 +59,31 @@ describe('PR preview workflow', () => {
     const comment = preview.steps.find(step => step.name === 'Comment the preview URL')!
     expect(comment.run).toContain('<!-- dsh-preview-url -->')
     expect(comment.run).toContain('gh pr comment "$PR" --body-file -')
+  })
+
+  it('builds on every PR and publishes only when explicitly enabled for a same-repository human PR', () => {
+    const publish = "${{ vars.DSH_CLOUDFLARE_PREVIEW_ENABLED == 'true' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot' && github.event.pull_request.user.type != 'App' }}"
+    for (const name of ['Build workspace', 'Build the preview page and pack the VFS image']) {
+      expect(preview.steps.find(step => step.name === name)?.if).toBeUndefined()
+    }
+    for (const name of [
+      'Validate Cloudflare configuration',
+      'Upload to Cloudflare Pages',
+      'Verify the protected deployment serves the image',
+      'Comment the preview URL',
+    ]) {
+      expect(preview.steps.find(step => step.name === name)?.if, name).toBe(publish)
+    }
+    const validate = preview.steps.find(step => step.name === 'Validate Cloudflare configuration')!
+    expect(validate.env).toEqual({
+      CLOUDFLARE_API_TOKEN: '${{ secrets.CLOUDFLARE_API_TOKEN }}',
+      CLOUDFLARE_ACCOUNT_ID: '${{ secrets.CLOUDFLARE_ACCOUNT_ID }}',
+      CF_ACCESS_CLIENT_ID: '${{ secrets.CF_ACCESS_CLIENT_ID }}',
+      CF_ACCESS_CLIENT_SECRET: '${{ secrets.CF_ACCESS_CLIENT_SECRET }}',
+    })
+    for (const credential of Object.keys(validate.env!)) expect(validate.run).toContain(credential)
+    expect(validate.run).toContain('::error::')
+    expect(validate.run).toContain('exit 1')
+    expect(preview.steps.indexOf(validate)).toBeLessThan(preview.steps.findIndex(step => step.name === 'Upload to Cloudflare Pages'))
   })
 })

@@ -10,7 +10,7 @@ PR（Pull Request）预览构建完整工作区及浏览器 worker VFS 镜像。
 
 ## 决策
 
-[预览工作流](../../../../.github/workflows/build-preview-cloudflare.yml) 使用标准 GitHub 托管 `ubuntu-24.04`。构建、缓存、部署、受保护镜像验证及评论语义保持不变。[规格参考](../../../../.github/preview-sizing/README.zh.md) 负责比较要求。独立的 CI [故障切换手册](2026-07-26-ci-failover-runbook.zh.md) 保留其运行器切换决策；预览不使用这些开关。
+[预览工作流](../../../../.github/workflows/build-preview-cloudflare.yml) 使用标准 GitHub 托管 `ubuntu-24.04` 构建每个 PR。[规格参考](../../../../.github/preview-sizing/README.zh.md) 负责比较要求和可选发布配置。部署、受保护镜像验证和评论要求为同仓库的人工 PR 显式启用发布；构建与缓存步骤独立于凭据运行。独立的 CI [故障切换手册](2026-07-26-ci-failover-runbook.zh.md) 保留其运行器切换决策；预览不使用这些开关。
 
 ### 测量
 
@@ -43,4 +43,4 @@ PR（Pull Request）预览构建完整工作区及浏览器 worker VFS 镜像。
 
 预览以约 78 秒采样构建作业延迟换取更低的计算费用。生产 Cloudflare 延迟、镜像发布差异、未来构建增长及更广泛的成功率仍是可观测限制。不从本次单一实验外推每小时或每月节省。最终文件树不包含临时基准工作流及其安全测试；实验提交与链接的运行保留方法和证据。
 
-已执行的[针对性回归](../../../../scripts/preview-workflow.spec.ts) 固定托管路由、PR 触发器与权限、不可变完整构建、只恢复缓存、发布内容整理、受保护镜像检查及幂等评论。实际修改为自托管路由会使路由断言失败；恢复后全部三个测试通过。不改变模型可见运行时行为，因此不需要修改 Session 快照。
+[针对性回归](../../../../scripts/preview-workflow.spec.ts) 固定托管路由、PR 触发器与权限、不可变完整构建、只恢复缓存、发布内容整理、受保护镜像检查、幂等评论、显式启用发布和缺少凭据时的失败。不改变模型可见运行时行为，因此不需要修改 Session 快照。

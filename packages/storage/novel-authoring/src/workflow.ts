@@ -104,8 +104,8 @@ export class NovelGenerationWorkflowService {
         }))
       const completeGeneration: DraftGenerationResult = {
         ...generation,
-        records: [...generation.records, ...(enriched.records ?? [])],
-        proposals: [...generation.proposals, ...(enriched.proposals ?? [])],
+        records: [...generation.records, ...enriched.records],
+        proposals: [...generation.proposals, ...enriched.proposals],
       }
       const materialization = await this.dependencies.materialization.materialize(completeGeneration)
       await this.setStatus(input.workspaceId, runId, 'completed')

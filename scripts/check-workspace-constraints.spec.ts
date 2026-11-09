@@ -1,10 +1,13 @@
 /** Experimental-package publication and dependency constraints. */
 
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   checkDshFamilyVersion,
   checkExperimentalDependencyIsolation,
   checkExperimentalManifest,
+  checkWorkspaceManifest,
   expectedDshPackageFiles,
   type WorkspaceManifest,
 } from './check-workspace-constraints.ts'
@@ -132,6 +135,45 @@ describe('dsh family version coherence', () => {
 })
 
 describe('package payload constraints', () => {
+  it('publishes only the database migration inputs and controlled scripts beside built artifacts', () => {
+    const expected = [
+      'lib/index.js',
+      'migrations/*.sql',
+      'migrations/meta/_journal.json',
+      'scripts/migrate.js',
+      'scripts/bootstrap-migrator-ownership.sql',
+      'lib/types/**/*.d.ts',
+    ]
+    const manifest = JSON.parse(readFileSync(resolve(import.meta.dirname,
+      '../packages/database/database-postgres/package.json'), 'utf8')) as WorkspaceManifest['manifest']
+    expect(expectedDshPackageFiles(manifest)).toEqual(expected)
+    expect(manifest.files).toEqual(expected)
+    expect(checkWorkspaceManifest({ dir: 'packages/database/database-postgres', manifest })).toEqual([])
+    for (const extra of ['src', 'src/index.ts', 'lib/index.js.map', 'lib/types/index.d.ts.map',
+      'migrations', 'migrations/**', 'scripts/**/*.js', 'scripts/**/*.sql', 'drizzle.config.ts']) {
+      expect(checkWorkspaceManifest({
+        dir: 'packages/database/database-postgres', manifest: { ...manifest, files: [...expected, extra] },
+      }).some(error => error.includes('package.json files must'))).toBe(true)
+    }
+    expect(expectedDshPackageFiles({ name: '@deepseek-ai/dsh-other' })).toEqual([
+      'lib/index.js', 'lib/types/**/*.d.ts',
+    ])
+  })
+
+  it.each([
+    'database/database-postgres', 'identity/user-auth', 'storage/novel-authoring', 'api/novel-authoring-http',
+  ])('%s declares the shared Cordis peer and public repository metadata', (directory) => {
+    const manifest = JSON.parse(readFileSync(resolve(import.meta.dirname,
+      '../packages/' + directory + '/package.json'), 'utf8')) as WorkspaceManifest['manifest']
+    expect(manifest.peerDependencies?.['@deepseek-ai/cordis']).toBe('workspace:^')
+    expect(manifest.devDependencies?.['@deepseek-ai/cordis']).toBe('workspace:^')
+    expect(manifest.publishConfig).toEqual({ access: 'public' })
+    expect(manifest.repository).toEqual({
+      type: 'git', url: 'git+https://github.com/deepseek-ai/deepseek-harness.git',
+      directory: 'packages/' + directory,
+    })
+  })
+
   it('includes a declared profile patch without a package-name allowlist', () => {
     expect(expectedDshPackageFiles({
       name: '@deepseek-ai/dsh-private-profile',
