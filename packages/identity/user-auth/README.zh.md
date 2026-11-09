@@ -56,6 +56,10 @@ kind: "package-library"
 
 邮箱验证是一个必需的存储操作：底层 Store 必须在原子事务中消费未过期且未使用的令牌，并激活对应用户。
 
+Refresh token 轮换由 Store 的单个事务负责，包括重放检测、family 撤销和仅追加安全审计。PostgreSQL 存储按用户、family、token 顺序加锁，并在取得 family 锁后重新读取 token。首次签发和显式撤销遵循同一协议；密码重置先独占锁定用户，再枚举其 family。并发重用会撤销所有后代，其他 family 保持不变。未知、过期、撤销和重用凭证均返回 `401 invalid_refresh_token`；审计或数据库失败会回滚，并返回既有可用性错误。[事务锁决策](../../../.agents/notes/implemented/bug-fix/2026-11-09-refresh-family-transaction-locks.zh.md)说明锁模式及替代方案。
+
+`pnpm run test:postgres` 执行独立的 PostgreSQL 18 回归测试。它要求认证运行账号使用 `DATABASE_TEST_URL`，迁移账号使用 `DATABASE_MIGRATION_URL`，且两者指向同一个名称包含 `test` 的隔离数据库。配置缺失或不一致时直接失败，不跳过；测试从不加载生产 `.env`。fixture 要求已应用提交的迁移和 ownership bootstrap，宿主必须销毁测试数据库，才能移除仅追加审计记录。
+
 `AuthHttpController.handle()` 在错误处理范围内等待路由操作。符合现有分类的凭据校验错误返回 `400 invalid_request`；其他失败返回 `500 authentication_unavailable`，不包含原始错误详情。会话解析器可以依赖实例状态：控制器通过解析器对象调用其方法。JWT 解析先校验解码对象及字段，再返回声明。
 
 </details>
@@ -65,6 +69,7 @@ kind: "package-library"
 <a id="further-exploration"></a>
 ## 进一步阅读
 
+- [认证子系统](../../../docs/subsystems/identity-auth.zh.md)：Refresh Token 持久化类型和事务语义。
 - [HTTP 子系统](../../../docs/subsystems/web-server.zh.md)：请求与响应适配。
 - [PostgreSQL 库](../../database/database-postgres/README.zh.md)：连接池和凭据职责。
 

@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-11-09-refresh-family-transaction-locks.md
+2026-11-09-refresh-family-transaction-locks.md: 24acd2c8b6a6d4a33b58ea109a573cdaeb7e03ce
+2026-11-09-refresh-family-transaction-locks.zh.md: 7619f0906e7aaad436a60e4d3a8d36fb240e8fac

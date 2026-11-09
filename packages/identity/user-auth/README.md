@@ -56,6 +56,10 @@ Use `UserAuthService` with a transactional `AuthStore`. Persist only `hashToken(
 
 Email verification is one required store operation: the backing store consumes an unexpired, unused token and activates its user atomically.
 
+Refresh-token rotation is one Store transaction, including replay detection, family revocation, and the append-only security audit. The PostgreSQL store acquires locks in user, family, then token order and re-reads the token after acquiring the family lock. Initial issuance and explicit revocation share that protocol; password reset locks the user exclusively before enumerating its families. Concurrent reuse revokes every descendant, while unrelated families remain unchanged. Unknown, expired, revoked, and reused credentials all return `401 invalid_refresh_token`; audit or database failures roll back and return the existing availability error. The [transaction-lock decision](../../../.agents/notes/implemented/bug-fix/2026-11-09-refresh-family-transaction-locks.md) explains the lock modes and alternatives.
+
+`pnpm run test:postgres` runs the independent PostgreSQL 18 regression suite. It requires `DATABASE_TEST_URL` for the authentication runtime and `DATABASE_MIGRATION_URL` for the migrator, pointing to the same isolated database whose name contains `test`. Missing or inconsistent configuration fails rather than skipping; the suite never loads the production `.env`. Its fixtures require the committed migrations and ownership bootstrap, and the host must dispose of the test database to remove append-only audit records.
+
 `AuthHttpController.handle()` awaits route operations inside its error handler. Credential-validation errors matching its existing classification return `400 invalid_request`; other failures return `500 authentication_unavailable` without raw error details. Session resolvers may use instance state: the controller calls their methods on the resolver object. JWT parsing validates decoded objects and fields before exposing claims.
 
 </details>
@@ -65,6 +69,7 @@ Email verification is one required store operation: the backing store consumes a
 <a id="further-exploration"></a>
 ## Further Exploration
 
+- [Authentication subsystem](../../../docs/subsystems/identity-auth.md): refresh-token persistence types and transaction semantics.
 - [HTTP subsystem](../../../docs/subsystems/web-server.md): request and response adaptation.
 - [PostgreSQL library](../../database/database-postgres/README.md): pool and credential ownership.
 

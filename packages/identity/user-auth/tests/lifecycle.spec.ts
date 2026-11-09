@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { generateKeyPairSync, sign } from 'node:crypto'
+import { MemoryRefreshTokenStore } from './refresh-memory.ts'
 import {
   AccessTokenInvalidError,
   createAccessToken,
@@ -10,8 +11,6 @@ import {
   hashToken,
   verifyAccessToken,
   RefreshTokenService,
-  type RefreshTokenRecord,
-  type RefreshTokenStore,
   RedisAuthRateLimiter,
   AuthTemplateMailProvider,
 } from '../src/index.ts'
@@ -168,18 +167,7 @@ describe('authentication lifecycle', () => {
   })
 
   it('rotates refresh tokens and revokes a family when an old token is reused', async () => {
-    class RefreshStore implements RefreshTokenStore {
-      readonly records = new Map<string, RefreshTokenRecord>()
-      readonly revokedFamilies: string[] = []
-      async create(record: RefreshTokenRecord): Promise<void> { this.records.set(record.tokenHash, record) }
-      async findByHash(tokenHashValue: string): Promise<RefreshTokenRecord | null> { return this.records.get(tokenHashValue) ?? null }
-      async rotate(current: RefreshTokenRecord, replacement: RefreshTokenRecord): Promise<void> {
-        this.records.set(current.tokenHash, { ...current, usedAt: new Date() })
-        this.records.set(replacement.tokenHash, replacement)
-      }
-      async revokeFamily(familyId: string): Promise<void> { this.revokedFamilies.push(familyId) }
-    }
-    const store = new RefreshStore()
+    const store = new MemoryRefreshTokenStore()
     const service = new RefreshTokenService(store, () => new Date('2026-01-01T00:00:00Z'))
     const first = await service.issue('user-1', 'session-1')
     const second = await service.rotate(first.token)

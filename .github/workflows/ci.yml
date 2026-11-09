@@ -691,6 +691,41 @@ jobs:
         shell: pwsh
         run: pnpm run check:ci:windows-observational
 
+  postgres-refresh:
+    name: postgres 18 / refresh token concurrency
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_DB: refresh_p0_test
+          POSTGRES_PASSWORD: test-bootstrap-password
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d refresh_p0_test"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      DATABASE_TEST_URL: postgresql://dsh_test_auth:test-auth-password@127.0.0.1:5432/refresh_p0_test
+      DATABASE_MIGRATION_URL: postgresql://dsh_test_migrator:test-migrator-password@127.0.0.1:5432/refresh_p0_test
+      TEST_DATABASE_BOOTSTRAP_URL: postgresql://postgres:test-bootstrap-password@127.0.0.1:5432/refresh_p0_test
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm-${{ github.run_id }}-${{ github.run_attempt }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+      - name: Bootstrap disposable database and apply controlled migrations
+        run: pnpm exec tsx packages/identity/user-auth/tests-postgres/provision.ts
+      - name: Run real refresh token concurrency regressions
+        run: pnpm run test:postgres
+
   # Single stable required check for branch protection: require "all checks
   # passed" instead of enumerating matrix legs whose names change as lanes and
   # node versions evolve. Every blocking job in THIS workflow must be listed in
@@ -716,7 +751,7 @@ jobs:
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
           || 'ubuntu-24.04' }}
-    needs: [node-24, node-24-coverage, node-24-bench, node-24-consumers, node-compat, python-sdk, python-runtime, windows-build, windows-native-tests]
+    needs: [node-24, node-24-coverage, node-24-bench, node-24-consumers, node-compat, python-sdk, python-runtime, windows-build, windows-native-tests, postgres-refresh]
     if: ${{ !cancelled() && github.event_name == 'pull_request' }}
     steps:
       - name: Fail if any needed job did not succeed

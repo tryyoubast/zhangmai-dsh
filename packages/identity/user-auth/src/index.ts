@@ -101,11 +101,12 @@ function encode(value: Uint8Array): string {
 }
 
 function decode(value: string): Buffer {
-  try {
-    return Buffer.from(value, 'base64url')
-  } catch {
-    throw new InvalidPasswordHashError()
-  }
+  return Buffer.from(value, 'base64url')
+}
+
+// The fixed PHC expression has five mandatory captures on every successful match.
+function hasPasswordHashParts(match: RegExpExecArray | null): match is RegExpExecArray & [string, string, string, string, string, string] {
+  return match !== null
 }
 
 function derive(password: string, salt: Uint8Array, options: PasswordHashOptions): Promise<Buffer> {
@@ -152,10 +153,8 @@ export async function hashPassword(password: string, options: PasswordHashOption
  */
 export async function verifyPassword(password: string, encoded: string, options: PasswordHashOptions = {}): Promise<boolean> {
   const match = /^\$argon2id\$v=19\$m=(\d+),t=(\d+),p=(\d+)\$([^$]+)\$([^$]+)$/u.exec(encoded)
-  if (match === null) throw new InvalidPasswordHashError()
+  if (!hasPasswordHashParts(match)) throw new InvalidPasswordHashError()
   const [, memory, time, parallelism, saltText, digestText] = match
-  if (memory === undefined || time === undefined || parallelism === undefined
-    || saltText === undefined || digestText === undefined) throw new InvalidPasswordHashError()
   if (Number(memory) !== ARGON2ID_PARAMETERS.memoryKiB
     || Number(time) !== ARGON2ID_PARAMETERS.timeCost
     || Number(parallelism) !== ARGON2ID_PARAMETERS.parallelism) {
@@ -943,11 +942,44 @@ export interface RefreshTokenRecord {
   readonly revokedAt: Date | null
 }
 
-/** Atomic persistence seam for refresh-token rotation and family revocation. */
+/** Replacement material generated before the store transaction; identity comes from the persisted token. */
+export interface RefreshTokenReplacement {
+  readonly id: string
+  readonly tokenHash: string
+  readonly expiresAt: Date
+}
+
+/** Committed rotation outcome; normal credential rejection does not throw. */
+export type RefreshTokenRotationResult =
+  | {
+    readonly status: 'rotated'
+    readonly id: string
+    readonly userId: string
+    readonly sessionId: string
+    readonly familyId: string
+  }
+  | { readonly status: 'invalid' }
+  | { readonly status: 'reused' }
+
+/** Persistence owns family serialization, locked state reads, and atomic replay revocation and audit. */
 export interface RefreshTokenStore {
+  /**
+   * Persist an initial token using the same user/family locks as rotation and revocation.
+   * @param record - Initial hashed token metadata for a newly generated family.
+   */
   create(record: RefreshTokenRecord): Promise<void>
-  findByHash(tokenHash: string): Promise<RefreshTokenRecord | null>
-  rotate(current: RefreshTokenRecord, replacement: RefreshTokenRecord): Promise<void>
+  /**
+   * Rotate or revoke a replayed token family in one transaction, including the replay audit.
+   * @param tokenHash - Digest identifying the presented refresh credential.
+   * @param replacement - New token ID, digest, and expiry; persisted identity is inherited by the store.
+   * @param now - Time for expiry checks, consumption, revocation, and audit.
+   * @returns The committed outcome; infrastructure failures reject and roll back all writes.
+   */
+  rotate(tokenHash: string, replacement: RefreshTokenReplacement, now: Date): Promise<RefreshTokenRotationResult>
+  /**
+   * Revoke active family records under the same locks used by rotation.
+   * @param familyId - Family to revoke; a missing family is unchanged.
+   */
   revokeFamily(familyId: string): Promise<void>
 }
 
@@ -983,37 +1015,27 @@ export class RefreshTokenService {
   }
 
   /**
-   * Replace a usable refresh token; observing prior use revokes its family.
+   * Request atomic rotation; the store revokes the family and audits any detected replay.
    * @param token - Raw refresh credential whose hash identifies the stored record.
    * @returns The replacement credential and owner IDs, or null for unknown, revoked, expired, or already-used tokens.
-   * @throws When persistence fails, including a concurrent rotation rejected by the store.
+   * @throws When persistence or the replay audit fails; normal concurrent replay returns null.
    */
   async rotate(token: string): Promise<{ token: string; familyId: string; id: string; userId: string; sessionId: string } | null> {
-    const current = await this.store.findByHash(hashToken(token))
     const now = this.now()
-    if (current === null || current.revokedAt !== null || current.expiresAt <= now) return null
-    if (current.usedAt !== null) {
-      await this.store.revokeFamily(current.familyId)
-      return null
-    }
     const replacementToken = createOpaqueToken(48)
     const replacement = {
       id: randomUUID(),
-      userId: current.userId,
-      sessionId: current.sessionId,
-      familyId: current.familyId,
       tokenHash: hashToken(replacementToken),
       expiresAt: new Date(now.getTime() + this.ttlMs),
-      usedAt: null,
-      revokedAt: null,
-    } satisfies RefreshTokenRecord
-    await this.store.rotate(current, replacement)
+    } satisfies RefreshTokenReplacement
+    const result = await this.store.rotate(hashToken(token), replacement, now)
+    if (result.status !== 'rotated') return null
     return {
       token: replacementToken,
-      familyId: replacement.familyId,
-      id: replacement.id,
-      userId: replacement.userId,
-      sessionId: replacement.sessionId,
+      familyId: result.familyId,
+      id: result.id,
+      userId: result.userId,
+      sessionId: result.sessionId,
     }
   }
 
@@ -1125,11 +1147,8 @@ export function verifyAccessToken(
   },
 ): AccessTokenClaims {
   const parts = token.split('.')
-  if (parts.length !== 3) throw new AccessTokenInvalidError()
+  if (!isJwtParts(parts)) throw new AccessTokenInvalidError()
   const [encodedHeader, encodedPayload, encodedSignature] = parts
-  if (encodedHeader === undefined || encodedPayload === undefined || encodedSignature === undefined) {
-    throw new AccessTokenInvalidError()
-  }
   const header = parseJson(Buffer.from(encodedHeader, 'base64url').toString('utf8'))
   if (!isJsonObject(header) || header.alg !== 'EdDSA' || header.typ !== 'JWT') throw new AccessTokenInvalidError()
   const validSignature = verify(
@@ -1158,6 +1177,11 @@ export function verifyAccessToken(
     iss: claims.iss, aud: claims.aud, sub: claims.sub, sid: claims.sid,
     jti: claims.jti, iat: claims.iat, exp: claims.exp, scope,
   }
+}
+
+// String.split produces a dense array, so a three-part JWT has all three strings.
+function isJwtParts(parts: string[]): parts is [string, string, string] {
+  return parts.length === 3
 }
 
 function cryptoRandomUuid(): string {

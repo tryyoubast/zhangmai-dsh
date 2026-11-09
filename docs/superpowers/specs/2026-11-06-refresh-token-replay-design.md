@@ -1,6 +1,8 @@
 # Refresh Token Replay Revocation Design
 
-**Status:** Approved design, pending document review
+**Status:** Approved implementation and acceptance specification
+
+English | [中文](2026-11-06-refresh-token-replay-design.zh.md)
 
 ## Problem
 
@@ -21,14 +23,14 @@ RefreshTokenStore.rotate(tokenHash, replacement, now) owns the full operation. T
 
 PostgreSQL performs the operation in a READ COMMITTED transaction:
 
-1. Look up the token's family identifier by its unique hash. Return invalid when no row exists.
-2. Acquire a transaction-scoped advisory lock derived from that family identifier.
-3. Re-read the token in a new statement and lock its row with FOR UPDATE. The fresh statement is required so a request that waited for the family lock sees the committed state.
+1. Look up the token's user and family identifiers by its unique hash. Return invalid when no row exists; the lookup does not establish credential validity.
+2. Lock the user row FOR KEY SHARE, then acquire a transaction-scoped advisory lock derived from the family identifier. The family key uses hashtextextended with the dsh:auth:refresh-family: namespace and seed 0.
+3. Re-read the token in a new SQL statement and lock its row with FOR UPDATE. The fresh READ COMMITTED statement sees changes committed while waiting for the family lock.
 4. Return invalid without writes for expired or revoked tokens.
 5. For an already-used token, revoke every still-active row in the family, append exactly one reuse audit event, and return reused. The revocation and audit commit together.
 6. For an unused token, insert its replacement first, then set used_at and replaced_by on the consumed row. Return rotated with persisted identity fields.
 
-Every operation that can revoke or create descendants in a family must follow the same family-lock protocol. Operations spanning multiple families acquire locks in a deterministic sorted order. This includes explicit family revocation and password-reset-driven refresh-token revocation.
+Initial issuance and explicit family revocation use the same user KEY SHARE and family advisory locks. Password reset locks the user FOR UPDATE before enumerating and locking existing families in sorted order. The exclusive user lock prevents concurrent issuance or rotation from changing the family set during enumeration. All paths preserve user-to-family-to-token lock order; different families can otherwise rotate concurrently.
 
 The result is a discriminated union of rotated, invalid, and reused. Database failures reject and roll back the transaction; normal credential rejection does not use exceptions.
 
@@ -36,13 +38,15 @@ The result is a discriminated union of rotated, invalid, and reused. Database fa
 
 The refresh service maps both invalid and reused to null, so callers cannot distinguish token state. The HTTP controller returns 401 {"error":"invalid_refresh_token"}. Infrastructure or audit-write failures remain service failures and are handled by the existing generic availability response.
 
-Reuse audit action is auth.refresh_token_reuse_detected, with target type refresh_token_family. Metadata is limited to userId, sessionId, and tokenId; the event is written in the same transaction as family revocation.
+The reuse audit has workspaceId null, actorType system, actorId auth.refresh_token_service, action auth.refresh_token_reuse_detected, targetType refresh_token_family, and targetId equal to the family ID. Metadata is limited to userId, sessionId, and tokenId. createdAt uses the time passed to rotate; the event is written in the same transaction as family revocation.
 
-## CI boundary
+## Repository CI and PR policy
 
-The P0 reimplementation includes a dedicated PostgreSQL 18 Actions job that provisions an isolated test database, applies the repository migrations with the migration role, and runs the real-store concurrency suite with the restricted runtime role. The job participates in the stable required-check verdict so a missing database environment cannot silently skip the P0 regression test.
+The P0 acceptance requires a dedicated PostgreSQL 18 Actions job. A temporary superuser applies only baseline 0001 and ownership bootstrap; a separate non-superuser inheriting only dsh_migrator applies 0002–0014. Tests use another non-superuser inheriting only dsh_auth_runtime. The job participates in all checks passed without a conditional skip or continue-on-error.
 
-Only CI wiring needed to provision PostgreSQL and run this regression suite is in scope. Repository-independent PR policy, Issue/Project workflow changes, and package-constraint edits from the previous CI work are not part of this design.
+Three commits separate portable CI prerequisites, the independent PR metadata policy, and the P0 fix. CI uses hosted Linux and Windows runners by default, with explicit enterprise/failover configuration. Package constraints and exact database publication payloads are repaired without dependency upgrades or migration edits. The [CI decision](../../../.agents/notes/implemented/process/2026-11-09-portable-ci-prerequisites.md) owns runner and package details.
+
+The required Issue policy check validates current-repository PR labels and review state with a read-only token. It does not parse the PR body, query Issues or Projects, or require an Issue reference. Issue/Project automation and Cloudflare deployment are opt-in; Cloudflare still builds when deployment is disabled. The [PR policy decision](../../../.agents/notes/implemented/process/2026-11-09-portable-pr-metadata-and-optional-project.md) owns permissions and activation conditions.
 
 ## Alternatives
 
@@ -54,7 +58,12 @@ Only CI wiring needed to provision PostgreSQL and run this regression suite is i
 ## Verification
 
 - Unit tests cover service result mapping and HTTP 401 behavior.
-- Real PostgreSQL integration tests use two independent connections to force same-token contention and stale-ancestor versus descendant contention.
+- Real PostgreSQL integration tests require explicit runtime and migration URLs pointing to the same isolated database whose name contains test. Missing or mismatched values fail; no production .env is loaded.
+- Two independent runtime connections, a control transaction, test-only triggers, and observed database lock waits arrange both race orders without a fixed delay.
 - Tests assert no promise rejection for a normal replay, no second active replacement, revocation of every family row, one append-only audit event, and rollback of revocation when audit insertion fails.
-- Tests cover family revocation and password reset racing with rotation, proving these mutation paths share the family lock order.
+- Tests cover stale-ancestor replay, explicit family revocation, and password reset racing with rotation in both orders. Other families and users remain unaffected by replay revocation.
+- Red tests run against the pre-fix implementation, and an ancestor/descendant negative control temporarily removes the family lock and must fail. All temporary mutations are restored before acceptance checks.
+- Fixture cleanup releases control transactions, removes test triggers/functions, and closes connections in finally. Append-only audits remain until the disposable database is destroyed.
 - Required checks include the user-auth unit suite, real PostgreSQL suite, the dedicated PostgreSQL 18 Actions job, typecheck, lint, and documentation gates.
+
+P0 is resolved only after real concurrency tests and every required CI check pass. The [implemented decision](../../../.agents/notes/implemented/bug-fix/2026-11-09-refresh-family-transaction-locks.md) records the persistence rationale; the [authentication subsystem](../../subsystems/identity-auth.md) owns source-equivalent types. Verification results belong in the delivery report, not this specification.

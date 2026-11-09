@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { generateKeyPairSync } from 'node:crypto'
+import { MemoryRefreshTokenStore } from './refresh-memory.ts'
 import {
   AuthHttpController,
   AuthSecurityControls,
@@ -14,16 +15,14 @@ import {
   type AuthHttpSessionResolver,
   type AuthLifecycleStore,
   type AuthUserRecord,
-  type RefreshTokenRecord,
-  type RefreshTokenStore,
 } from '../src/index.ts'
 
-class HttpStore implements AuthLifecycleStore, RefreshTokenStore {
+class HttpStore extends MemoryRefreshTokenStore implements AuthLifecycleStore {
   readonly users = new Map<string, AuthUserRecord>()
   readonly sessions = new Map<string, { userId: string; tokenHash: string }>()
   readonly verification = new Map<string, { userId: string; expiresAt: Date; consumedAt: Date | null }>()
   readonly resets = new Map<string, { userId: string; expiresAt: Date; consumedAt: Date | null }>()
-  readonly refresh = new Map<string, RefreshTokenRecord>()
+  readonly refresh = this.records
 
   findUserByEmail(emailNormalized: string): Promise<AuthUserRecord | null> {
     return Promise.resolve([...this.users.values()].find(user => user.emailNormalized === emailNormalized) ?? null)
@@ -85,24 +84,6 @@ class HttpStore implements AuthLifecycleStore, RefreshTokenStore {
   }
   revokeUserSessions(userId: string): Promise<void> {
     for (const [id, session] of this.sessions) if (session.userId === userId) this.sessions.delete(id)
-    return Promise.resolve()
-  }
-  create(record: RefreshTokenRecord): Promise<void> {
-    this.refresh.set(record.tokenHash, record)
-    return Promise.resolve()
-  }
-  findByHash(tokenHashValue: string): Promise<RefreshTokenRecord | null> {
-    return Promise.resolve(this.refresh.get(tokenHashValue) ?? null)
-  }
-  rotate(current: RefreshTokenRecord, replacement: RefreshTokenRecord): Promise<void> {
-    this.refresh.set(current.tokenHash, { ...current, usedAt: new Date() })
-    this.refresh.set(replacement.tokenHash, replacement)
-    return Promise.resolve()
-  }
-  revokeFamily(familyId: string): Promise<void> {
-    for (const [hash, record] of this.refresh) {
-      if (record.familyId === familyId) this.refresh.set(hash, { ...record, revokedAt: new Date() })
-    }
     return Promise.resolve()
   }
 }
@@ -209,7 +190,18 @@ describe('authentication HTTP controller', () => {
     if (typeof result.accessToken !== 'string' || typeof result.refreshToken !== 'string') throw new Error('credentials missing')
     expect(verifyAccessToken(result.accessToken, { publicKey, issuer: 'dsh', audience: 'dsh-api', now: now.getTime() }))
       .toMatchObject({ sub: 'user-1', sid: 'session-1' })
-    expect(await store.findByHash(hashToken(result.refreshToken))).toMatchObject({ userId: 'user-1', sessionId: 'session-1' })
+    expect(store.refresh.get(hashToken(result.refreshToken))).toMatchObject({ userId: 'user-1', sessionId: 'session-1' })
+
+    const replay = await controller.handle({
+      method: 'POST', path: '/api/auth/refresh', headers: {}, body: { refreshToken: issued.token },
+    })
+    expect(replay.status).toBe(401)
+    expect(body(replay)).toEqual({ error: 'invalid_refresh_token' })
+    const descendant = await controller.handle({
+      method: 'POST', path: '/api/auth/refresh', headers: {}, body: { refreshToken: result.refreshToken },
+    })
+    expect(descendant.status).toBe(401)
+    expect(body(descendant)).toEqual({ error: 'invalid_refresh_token' })
   })
 
   it('resolves a browser principal from a hashed __Host session cookie', async () => {
