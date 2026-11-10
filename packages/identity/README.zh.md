@@ -1,5 +1,5 @@
 ---
-description: "identity 包组：由遥测、反馈与 DeepSeek 提供方请求共享的匿名关联 id，每个 harness home 一个。"
+description: "匿名安装关联及服务端多用户认证。"
 kind: "package-group"
 ---
 
@@ -28,6 +28,7 @@ identity 组提供匿名安装关联和多用户认证基础能力。认证包�
 <a id="related-documentation"></a>
 ## 相关文档
 
+- [认证子系统](../../docs/subsystems/identity-auth.zh.md)——本组的 Refresh Token 持久化类型和原子轮换语义。
 - [会话遥测子系统](../../docs/subsystems/session-telemetry.zh.md)——在导出中携带该 id 的遥测功能。
 - [dsh-llm-deepseek](../llm/llm-deepseek/README.zh.md)——在请求中携带该 id 的 DeepSeek 提供方。
 - [dsh-command-feedback](../feedback/command-feedback/README.zh.md)——在确认文本中点名该匿名安装的反馈命令。

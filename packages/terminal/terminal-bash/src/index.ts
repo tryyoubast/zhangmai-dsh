@@ -142,7 +142,8 @@ async function startupSession(
       viewport = result.viewport
       if (result.waitReason === 'stdin_read') break
     }
-    session.motd = viewport
+    // Output can arrive after one send settles and before the next probe starts.
+    session.motd = session.read({}).text
   }
   const races: Promise<void>[] = []
   let onAbort: (() => void) | undefined

@@ -47,7 +47,7 @@ Issue 已有原生 Issue Type 和独立的来源分类体系。在这两类对�
 
 Issue 使用原生 Issue Type，而不是 `kind/*`；其 `area/*` 标签仍然可选。`source/*` 标签记录 Issue 的创建方式，不适用于 PR。优先级、GitHub 默认标签和工作流触发器仍是相互独立的管理元数据。
 
-仓库生命周期会先从 Issue 中移除 PR `kind/*` 标签和保留别名，再执行审计。政策评论只报告无法从 Issue 推导预期值的违规项，例如缺失原生 Issue Type 或使用不受支持的优先级。
+[Project 集成启用后](../../../../.github/issue-management/README.zh.md#optional-issue-project-integration)，仓库生命周期会先从 Issue 中移除 PR `kind/*` 标签和保留别名，再执行审计。政策评论只报告无法从 Issue 推导预期值的违规项，例如缺失原生 Issue Type 或使用不受支持的优先级。
 
 迁移标签时，须先保留语义，再移除别名：先添加规范替代标签，核验可加标签对象，再移除废弃的标签关系。只有在所有 PR 和 Issue 都不再使用某个标签后才能将其删除，且绝不整组替换无关标签。
 

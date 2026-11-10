@@ -10,7 +10,7 @@ PR previews build the full workspace and browser-worker VFS image. A lower per-m
 
 ## Decision
 
-The [preview workflow](../../../../.github/workflows/build-preview-cloudflare.yml) uses standard GitHub-hosted `ubuntu-24.04`. Build, cache, deployment, protected-image verification, and comment semantics remain unchanged. The [sizing reference](../../../../.github/preview-sizing/README.md) owns comparison requirements. The separate CI [failover runbook](2026-07-26-ci-failover-runbook.md) retains its independent runner-switch decision; previews do not use those switches.
+The [preview workflow](../../../../.github/workflows/build-preview-cloudflare.yml) uses standard GitHub-hosted `ubuntu-24.04` for every PR build. The [sizing reference](../../../../.github/preview-sizing/README.md) owns comparison requirements and optional publication configuration. Deployment, protected-image verification, and comments require explicit publication enablement for a same-repository human PR; build and cache steps run independently of credentials. The separate CI [failover runbook](2026-07-26-ci-failover-runbook.md) retains its independent runner-switch decision; previews do not use those switches.
 
 ### Measurements
 
@@ -43,4 +43,4 @@ The experiment does not deploy or access Cloudflare credentials. Measurement upl
 
 Previews trade approximately 78 seconds of sampled build-job latency for lower compute cost. Production Cloudflare latency, image rollout variance, future build growth, and broader success rates remain observable limitations. No hourly or monthly savings are extrapolated from this single experiment. The temporary benchmark workflow and its safety test are absent from the final tree; the experiment commits and linked run preserve the method and evidence.
 
-The executed [focused regression](../../../../scripts/preview-workflow.spec.ts) pins hosted routing, PR triggers and permissions, immutable full builds, restore-only caching, publication shaping, protected-image checks, and idempotent comments. A physical self-hosted routing mutation fails its routing assertion; restoration passes all three tests. No model-visible runtime behavior changes, so no Session snapshot changes are required.
+The [focused regression](../../../../scripts/preview-workflow.spec.ts) pins hosted routing, PR triggers and permissions, immutable full builds, restore-only caching, publication shaping, protected-image checks, idempotent comments, explicit publication enablement, and missing-credential failures. No model-visible runtime behavior changes, so no Session snapshot changes are required.

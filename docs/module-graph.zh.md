@@ -114,6 +114,7 @@ flowchart TD
   end
   subgraph group_api["packages/api"]
     pkg_api_gateway["api-gateway"]
+    pkg_api_novel_authoring_http["api-novel-authoring-http"]
     pkg_api_remotes["api-remotes"]
     pkg_api_session_controller["api-session-controller"]
     pkg_api_settings_controller["api-settings-controller"]
@@ -212,6 +213,9 @@ flowchart TD
     pkg_credentials["credentials"]
     pkg_credentials_local["credentials-local"]
   end
+  subgraph group_database["packages/database"]
+    pkg_database_postgres["database-postgres"]
+  end
   subgraph group_e2b["packages/e2b"]
     pkg_e2b["e2b"]
     pkg_fs_e2b["fs-e2b"]
@@ -254,6 +258,7 @@ flowchart TD
   end
   subgraph group_identity["packages/identity"]
     pkg_anonymous_user_id["anonymous-user-id"]
+    pkg_user_auth["user-auth"]
   end
   subgraph group_interaction["packages/interaction"]
     pkg_commands["commands"]
@@ -334,6 +339,7 @@ flowchart TD
     pkg_tool_pwsh_persistent["tool-pwsh-persistent"]
   end
   subgraph group_storage["packages/storage"]
+    pkg_novel_authoring["novel-authoring"]
     pkg_storage["storage"]
     pkg_storage_domain["storage-domain"]
     pkg_storage_json["storage-json"]
@@ -1206,6 +1212,7 @@ flowchart TD
 | [`deepseek-llm-api-extensions`](../packages/llm/deepseek-llm-api-extensions) | `llm` | — |
 | [`llm`](../packages/llm/llm) | `llm` | — |
 | [`api-gateway`](../packages/api/gateway) | `api` | — |
+| [`api-novel-authoring-http`](../packages/api/novel-authoring-http) | `api` | — |
 | [`api-workspace-files`](../packages/api/workspace-files) | `api` | — |
 | [`cmdline`](../packages/boot/cmdline) | `boot` | — |
 | [`acp-app`](../packages/bundle/acp-app) | `bundle` | — |
@@ -1263,6 +1270,7 @@ flowchart TD
 | [`client-ui-workspace`](../packages/client/ui-workspace) | `client` | — |
 | [`client-web`](../packages/client/web) | `client` | — |
 | [`code-runtime`](../packages/code-runtime/code-runtime) | `code-runtime` | — |
+| [`database-postgres`](../packages/database/database-postgres) | `database` | — |
 | [`experimental-agent-team-profile`](../packages/experimental/agent-team-profile) | `experimental` | — |
 | [`experimental-agent-team-web-profile`](../packages/experimental/agent-team-web-profile) | `experimental` | — |
 | [`experimental-webworker-packer`](../packages/experimental/webworker-packer) | `experimental` | — |
@@ -1273,12 +1281,14 @@ flowchart TD
 | [`host-directory-picker-native`](../packages/host/directory-picker-native) | `host` | — |
 | [`host-open-in-app`](../packages/host/open-in-app) | `host` | — |
 | [`host-webserver`](../packages/host/webserver) | `host` | — |
+| [`user-auth`](../packages/identity/user-auth) | `identity` | — |
 | [`invariants`](../packages/runtime-diagnostics/invariants) | `runtime-diagnostics` | — |
 | [`sandbox-windows-acl`](../packages/sandbox/sandbox-windows-acl) | `sandbox` | — |
 | [`session-format`](../packages/session/session-format) | `session` | — |
 | [`session-format-v0-to-v1`](../packages/session/session-format-v0-to-v1) | `session` | — |
 | [`session-format-v1-to-v2`](../packages/session/session-format-v1-to-v2) | `session` | — |
 | [`session-format-v2-to-v3`](../packages/session/session-format-v2-to-v3) | `session` | — |
+| [`novel-authoring`](../packages/storage/novel-authoring) | `storage` | — |
 | [`storage`](../packages/storage/storage) | `storage` | — |
 | [`win32-process`](../packages/subprocess/win32-process) | `subprocess` | — |
 | [`llm-mock-server`](../packages/test-support/llm-mock-server) | `test-support` | — |

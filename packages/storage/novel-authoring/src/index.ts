@@ -1,3 +1,5 @@
+/** Persist workspace-scoped novel drafts and review state; PostgreSQL owns publication and RLS enforcement. */
+import { persistedContextCandidate } from './context-candidate.ts'
 import { isDeepStrictEqual } from 'node:util'
 import {
   and,
@@ -30,6 +32,10 @@ import {
   type DshDatabase,
 } from '@deepseek-ai/dsh-database-postgres'
 import { canPerform, type AuthPrincipal } from '@deepseek-ai/dsh-user-auth'
+
+function assertWorkspace(principal: AuthPrincipal, workspaceId: string): void {
+  if (workspaceId !== principal.workspaceId) throw new Error('workspace context mismatch')
+}
 
 function requestContext(principal: AuthPrincipal): {
   userId: string
@@ -129,7 +135,12 @@ export interface QueuedGenerationRequest extends GenerationRunInput {
 /** States persisted for one AI generation task. */
 export type GenerationRunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
 
-/** Validate the state machine enforced by the PostgreSQL generation-run trigger. */
+/**
+ * Reject generation lifecycle transitions disallowed by the database state machine.
+ * @param from - Persisted run status.
+ * @param to - Requested status; running-to-running heartbeats are allowed.
+ * @throws When the transition leaves a terminal state or skips a permitted lifecycle step.
+ */
 export function assertGenerationRunTransition(from: GenerationRunStatus, to: GenerationRunStatus): void {
   const allowed: Record<GenerationRunStatus, readonly GenerationRunStatus[]> = {
     queued: ['running', 'cancelled'],
@@ -147,7 +158,13 @@ export type ProposalStatus = 'draft' | 'approved' | 'rejected' | 'published' | '
 /** Actors allowed to move a proposal between review states. */
 export type ProposalReviewActor = 'user' | 'service' | 'agent'
 
-/** Validate proposal transitions before the database trigger evaluates them. */
+/**
+ * Reject proposal review or publication transitions unavailable to the specified actor.
+ * @param from - Persisted proposal status.
+ * @param to - Requested proposal status.
+ * @param actor - User reviewer, publication service, or agent attempting the change.
+ * @throws When the actor cannot perform the transition; agents cannot change review state.
+ */
 export function assertProposalReviewTransition(
   from: ProposalStatus,
   to: ProposalStatus,
@@ -161,7 +178,12 @@ export function assertProposalReviewTransition(
   if (!allowed) throw new Error('invalid proposal transition')
 }
 
-/** Reject publication or rollback when the caller observed an older version. */
+/**
+ * Reject publication or rollback unless both version numbers are positive integers and equal.
+ * @param currentVersionNo - Version currently stored for the entity.
+ * @param expectedVersionNo - Version observed by the caller before preparing its change.
+ * @throws When a version is invalid or the caller observed a different version.
+ */
 export function assertOptimisticVersion(currentVersionNo: number, expectedVersionNo: number): void {
   if (!Number.isSafeInteger(currentVersionNo) || currentVersionNo < 1
     || !Number.isSafeInteger(expectedVersionNo) || expectedVersionNo < 1
@@ -262,7 +284,11 @@ export interface ChapterSummaryDraftInput {
   readonly idempotencyKey: string
 }
 
-/** Reject writes that are not initiated by a server-resolved editor or agent. */
+/**
+ * Require editor, administrator, or owner permission and an identity for agent writes.
+ * @param principal - Server-resolved actor and workspace roles.
+ * @throws When draft permission is absent or an agent has no agent principal ID.
+ */
 export function assertDraftAuthor(principal: AuthPrincipal): void {
   if (!canPerform(principal, 'draft:create')) throw new Error('workspace editor permission is required')
   if (principal.actorType === 'agent' && principal.agentPrincipalId === undefined) {
@@ -270,7 +296,11 @@ export function assertDraftAuthor(principal: AuthPrincipal): void {
   }
 }
 
-/** AI materialization and run lifecycle updates must use the bound worker role. */
+/**
+ * Require an identified agent with workspace draft permission for generation writes.
+ * @param principal - Server-resolved generation worker identity and workspace roles.
+ * @throws When the caller is not an identified agent or lacks editor-level permission.
+ */
 export function assertGenerationWorker(principal: AuthPrincipal): void {
   if (principal.actorType !== 'agent' || principal.agentPrincipalId === undefined) {
     throw new Error('generation worker requires an agent principal')
@@ -278,14 +308,23 @@ export function assertGenerationWorker(principal: AuthPrincipal): void {
   if (!canPerform(principal, 'draft:create')) throw new Error('workspace editor permission is required')
 }
 
-/** Database-backed authoring service. It never executes model-supplied SQL or DDL. */
+/**
+ * Persist generation requests and drafts using a separate RLS transaction for each operation.
+ * Draft materialization and run updates require an identified generation worker; enqueueing also permits users.
+ * Workspace mismatches, conflicting retry payloads, and database failures reject. Model data is never executed as SQL.
+ */
 export class NovelAuthoringService {
   constructor(
     private readonly database: DatabaseClient<DshDatabase>,
     private readonly principal: AuthPrincipal,
   ) {}
 
-  /** Create a queued generation run under the current workspace and actor context. */
+  /**
+   * Create a queued generation run under the current workspace and actor context.
+   * @param input - Run identity and model settings; omitted context limit defaults to eight.
+   * @returns The new run ID, or the ID already bound to an identical idempotent request.
+   * @throws For a supplied blank instruction or a context limit outside integer range 0–128.
+   */
   async createGenerationRun(input: GenerationRunInput): Promise<string> {
     assertDraftAuthor(this.principal)
     if (input.workspaceId !== this.principal.workspaceId) throw new Error('workspace context mismatch')
@@ -328,7 +367,12 @@ export class NovelAuthoringService {
     })
   }
 
-  /** Load the durable request payload for a worker resuming a queued run. */
+  /**
+   * Claim a queued run for this worker and load its durable request in one transaction.
+   * @param input - Workspace and generation run to claim.
+   * @returns The claimed request, including its saved instruction and context limit.
+   * @throws When the run is missing, unavailable to this worker, or has no saved instruction.
+   */
   async getQueuedGenerationRequest(input: {
     readonly workspaceId: string
     readonly generationRunId: string
@@ -365,23 +409,34 @@ export class NovelAuthoringService {
     })
   }
 
-  /** Read a generation run status within the authenticated workspace. */
+  private async readGenerationRunStatus(db: DshDatabase, workspaceId: string, generationRunId: string): Promise<GenerationRunStatus> {
+    const [run] = await db.select({ status: generationRuns.status }).from(generationRuns)
+      .where(and(eq(generationRuns.workspaceId, workspaceId), eq(generationRuns.id, generationRunId))).limit(1)
+    if (run === undefined) throw new Error('generation run was not found')
+    return run.status as GenerationRunStatus
+  }
+
+  /**
+   * Read a generation run status within the authenticated workspace.
+   * @param input - Workspace and generation run whose status is requested.
+   * @returns The persisted lifecycle status.
+   * @throws When the workspace differs or the run is not visible.
+   */
   async getGenerationRunStatus(input: {
     readonly workspaceId: string
     readonly generationRunId: string
   }): Promise<GenerationRunStatus> {
     if (input.workspaceId !== this.principal.workspaceId) throw new Error('workspace context mismatch')
     return this.withContext(async (db) => {
-      const [run] = await db.select({ status: generationRuns.status })
-        .from(generationRuns)
-        .where(and(eq(generationRuns.workspaceId, input.workspaceId), eq(generationRuns.id, input.generationRunId)))
-        .limit(1)
-      if (run === undefined) throw new Error('generation run was not found')
-      return run.status as GenerationRunStatus
+      return this.readGenerationRunStatus(db, input.workspaceId, input.generationRunId)
     })
   }
 
-  /** Advance a generation run without allowing worker-owned inputs to change. */
+  /**
+   * Advance a generation run without changing worker-owned request inputs.
+   * @param input - Run identity, next status, and optional heartbeat or terminal diagnostics.
+   * @throws When the run is missing, the transition is forbidden, or the error summary exceeds 512 characters.
+   */
   async updateGenerationRunStatus(input: {
     readonly workspaceId: string
     readonly generationRunId: string
@@ -394,12 +449,8 @@ export class NovelAuthoringService {
     assertGenerationWorker(this.principal)
     if (input.workspaceId !== this.principal.workspaceId) throw new Error('workspace context mismatch')
     await this.withContext(async (db) => {
-      const [run] = await db.select({ status: generationRuns.status })
-        .from(generationRuns)
-        .where(and(eq(generationRuns.workspaceId, input.workspaceId), eq(generationRuns.id, input.generationRunId)))
-        .limit(1)
-      if (run === undefined) throw new Error('generation run was not found')
-      assertGenerationRunTransition(run.status as GenerationRunStatus, input.status)
+      const currentStatus = await this.readGenerationRunStatus(db, input.workspaceId, input.generationRunId)
+      assertGenerationRunTransition(currentStatus, input.status)
       if (input.errorSummary !== undefined && input.errorSummary.length > 512) {
         throw new Error('generation run error summary is too long')
       }
@@ -415,7 +466,12 @@ export class NovelAuthoringService {
     })
   }
 
-  /** Persist a draft proposal; publication is intentionally unavailable on this service. */
+  /**
+   * Persist a draft proposal without publishing its generated content.
+   * @param input - Target, generated payload, validation results, and workspace-scoped retry key.
+   * @returns The new proposal ID or an existing ID for an identical retry.
+   * @throws When an update has no positive base version or its retry payload differs.
+   */
   async createDraftProposal(input: DraftProposalInput): Promise<string> {
     assertGenerationWorker(this.principal)
     if (input.workspaceId !== this.principal.workspaceId) throw new Error('workspace context mismatch')
@@ -459,7 +515,11 @@ export class NovelAuthoringService {
     })
   }
 
-  /** Create a draft character and return an existing record for an idempotent retry. */
+  /**
+   * Create an idempotent draft character.
+   * @param input - Name, optional summary and attributes, source run, and retry key.
+   * @returns The draft character ID, reusing an existing ID only for an identical retry.
+   */
   async createCharacterDraft(input: CharacterDraftInput): Promise<string> {
     assertGenerationWorker(this.principal)
     if (input.workspaceId !== this.principal.workspaceId) throw new Error('workspace context mismatch')
@@ -493,10 +553,14 @@ export class NovelAuthoringService {
     })
   }
 
-  /** Create an idempotent draft relation between two fixed entities. */
+  /**
+   * Create an idempotent draft entity relation.
+   * @param input - Source and target entities, relation metadata, source run, and retry key.
+   * @returns The draft entity relation ID, reusing an existing ID only for an identical retry.
+   */
   async createEntityRelationDraft(input: EntityRelationDraftInput): Promise<string> {
     assertGenerationWorker(this.principal)
-    this.assertWorkspace(input.workspaceId)
+    assertWorkspace(this.principal, input.workspaceId)
     return this.withContext(async (db) => {
       const [relation] = await db.insert(entityRelations).values({
         workspaceId: input.workspaceId,
@@ -537,10 +601,14 @@ export class NovelAuthoringService {
     })
   }
 
-  /** Create an idempotent draft character-to-skill association. */
+  /**
+   * Create an idempotent draft character-to-skill link.
+   * @param input - Character and skill IDs, relation metadata, source run, and retry key.
+   * @returns The draft character-to-skill link ID, reusing an existing ID only for an identical retry.
+   */
   async createCharacterSkillDraft(input: CharacterSkillDraftInput): Promise<string> {
     assertGenerationWorker(this.principal)
-    this.assertWorkspace(input.workspaceId)
+    assertWorkspace(this.principal, input.workspaceId)
     return this.withContext(async (db) => {
       const [link] = await db.insert(characterSkills).values({
         workspaceId: input.workspaceId,
@@ -575,10 +643,14 @@ export class NovelAuthoringService {
     })
   }
 
-  /** Create an idempotent draft world fact. */
+  /**
+   * Create an idempotent draft world fact.
+   * @param input - Fact key, statement, optional chapter provenance, source run, and retry key.
+   * @returns The draft world fact ID, reusing an existing ID only for an identical retry.
+   */
   async createStoryFactDraft(input: StoryFactDraftInput): Promise<string> {
     assertGenerationWorker(this.principal)
-    this.assertWorkspace(input.workspaceId)
+    assertWorkspace(this.principal, input.workspaceId)
     return this.withContext(async (db) => {
       const [fact] = await db.insert(storyFacts).values({
         workspaceId: input.workspaceId,
@@ -614,10 +686,14 @@ export class NovelAuthoringService {
     })
   }
 
-  /** Create an idempotent draft timeline event. */
+  /**
+   * Create an idempotent draft timeline event.
+   * @param input - Event key, content, optional ordering and chapter provenance, and retry key.
+   * @returns The draft timeline event ID, reusing an existing ID only for an identical retry.
+   */
   async createTimelineEventDraft(input: TimelineEventDraftInput): Promise<string> {
     assertGenerationWorker(this.principal)
-    this.assertWorkspace(input.workspaceId)
+    assertWorkspace(this.principal, input.workspaceId)
     return this.withContext(async (db) => {
       const [event] = await db.insert(timelineEvents).values({
         workspaceId: input.workspaceId,
@@ -657,10 +733,15 @@ export class NovelAuthoringService {
     })
   }
 
-  /** Create an idempotent draft summary for a persisted chapter version. */
+  /**
+   * Create an idempotent draft chapter summary.
+   * @param input - Chapter version, summary kind and text, content digest, source run, and retry key.
+   * @returns The draft chapter summary ID, reusing an existing ID only for an identical retry.
+   * @throws When the content digest is not a lowercase 64-character hexadecimal SHA-256 value.
+   */
   async createChapterSummaryDraft(input: ChapterSummaryDraftInput): Promise<string> {
     assertGenerationWorker(this.principal)
-    this.assertWorkspace(input.workspaceId)
+    assertWorkspace(this.principal, input.workspaceId)
     if (!/^[0-9a-f]{64}$/u.test(input.contentSha256)) throw new Error('summary SHA-256 must be a 64-character hexadecimal digest')
     return this.withContext(async (db) => {
       const [summary] = await db.insert(chapterSummaries).values({
@@ -697,35 +778,59 @@ export class NovelAuthoringService {
     })
   }
 
-  /** Create an idempotent draft skill. */
+  /**
+   * Create an idempotent draft skill.
+   * @param input - Named skill content, source run, and workspace-scoped retry key.
+   * @returns The draft skill ID, reusing an existing ID only for an identical retry.
+   */
   async createSkillDraft(input: NamedEntityDraftInput): Promise<string> {
     return this.createNamedDraft(input, skills)
   }
 
-  /** Create an idempotent draft location. */
+  /**
+   * Create an idempotent draft location.
+   * @param input - Named location content, source run, and workspace-scoped retry key.
+   * @returns The draft location ID, reusing an existing ID only for an identical retry.
+   */
   async createLocationDraft(input: NamedEntityDraftInput): Promise<string> {
     return this.createNamedDraft(input, locations)
   }
 
-  /** Create an idempotent draft faction. */
+  /**
+   * Create an idempotent draft faction.
+   * @param input - Named faction content, source run, and workspace-scoped retry key.
+   * @returns The draft faction ID, reusing an existing ID only for an identical retry.
+   */
   async createFactionDraft(input: NamedEntityDraftInput): Promise<string> {
     return this.createNamedDraft(input, factions)
   }
 
-  /** Create an idempotent draft item. */
+  /**
+   * Create an idempotent draft item.
+   * @param input - Named item content, source run, and workspace-scoped retry key.
+   * @returns The draft item ID, reusing an existing ID only for an identical retry.
+   */
   async createItemDraft(input: NamedEntityDraftInput): Promise<string> {
     return this.createNamedDraft(input, items)
   }
 
-  /** Create an idempotent draft storyline. */
+  /**
+   * Create an idempotent draft storyline.
+   * @param input - Named storyline content, source run, and workspace-scoped retry key.
+   * @returns The draft storyline ID, reusing an existing ID only for an identical retry.
+   */
   async createStorylineDraft(input: NamedEntityDraftInput): Promise<string> {
     return this.createNamedDraft(input, storylines)
   }
 
-  /** Create an idempotent draft outline with structured content. */
+  /**
+   * Create an idempotent draft outline.
+   * @param input - Outline title in name, structured content in attributes, source run, and retry key.
+   * @returns The draft outline ID, reusing an existing ID only for an identical retry.
+   */
   async createOutlineDraft(input: NamedEntityDraftInput): Promise<string> {
     assertGenerationWorker(this.principal)
-    this.assertWorkspace(input.workspaceId)
+    assertWorkspace(this.principal, input.workspaceId)
     return this.withContext(async (db) => {
       const [outline] = await db.insert(outlines).values({
         workspaceId: input.workspaceId,
@@ -760,7 +865,7 @@ export class NovelAuthoringService {
     table: typeof skills | typeof locations | typeof factions | typeof items | typeof storylines,
   ): Promise<string> {
     assertGenerationWorker(this.principal)
-    this.assertWorkspace(input.workspaceId)
+    assertWorkspace(this.principal, input.workspaceId)
     return this.withContext(async (db) => {
       const values = {
         workspaceId: input.workspaceId,
@@ -792,28 +897,26 @@ export class NovelAuthoringService {
     })
   }
 
-  private assertWorkspace(workspaceId: string): void {
-    if (workspaceId !== this.principal.workspaceId) throw new Error('workspace context mismatch')
-  }
-
   private withContext<T>(callback: (database: DshDatabase) => Promise<T>): Promise<T> {
-    return withRequestContext(this.database, {
-      userId: this.principal.userId,
-      workspaceId: this.principal.workspaceId,
-      actorType: this.principal.actorType,
-      ...(this.principal.agentPrincipalId === undefined ? {} : { agentPrincipalId: this.principal.agentPrincipalId }),
-    }, callback)
+    return withRequestContext(this.database, requestContext(this.principal), callback)
   }
 }
 
-/** User-facing proposal review operations; publication remains service-role controlled. */
+/**
+ * Review proposals as a user; each operation owns an RLS transaction and never publishes content.
+ * Workspace mismatches, insufficient roles, invalid proposal state, and database failures reject.
+ */
 export class ProposalReviewService {
   constructor(
     private readonly database: DatabaseClient<DshDatabase>,
     private readonly principal: AuthPrincipal,
   ) {}
 
-  /** Bind a newly-created proposal to the draft record it created. */
+  /**
+   * Bind a draft proposal with no target to the draft record it created.
+   * @param input - Current workspace, proposal ID, and target record ID.
+   * @throws When the caller lacks editor permission or the visible proposal is not an unbound draft.
+   */
   async bindTarget(input: { readonly workspaceId: string; readonly proposalId: string; readonly targetId: string }): Promise<void> {
     this.assertUser()
     if (input.workspaceId !== this.principal.workspaceId) throw new Error('workspace context mismatch')
@@ -833,7 +936,11 @@ export class ProposalReviewService {
     })
   }
 
-  /** Approve, reject, or reopen a proposal without changing its generated content. */
+  /**
+   * Approve, reject, expire, or reopen a proposal without changing its generated content.
+   * @param input - Current workspace, proposal ID, and requested review decision.
+   * @throws When the transition is invalid or a non-reopen decision has no target; approval and expiry require owner or admin permission.
+   */
   async review(input: {
     readonly workspaceId: string
     readonly proposalId: string
@@ -891,14 +998,21 @@ export interface ProposalRollbackInput {
   readonly versionNo: number
 }
 
-/** Calls the database-owned publication and rollback transactions. */
+/**
+ * Call database-owned publication and rollback procedures inside an owned RLS transaction.
+ * Requires a human owner or administrator in the selected workspace and a service-role database client.
+ * Permission, version, proposal-validation, and database failures reject without committing the operation.
+ */
 export class ProposalPublicationService {
   constructor(
     private readonly database: DatabaseClient<DshDatabase>,
     private readonly principal: AuthPrincipal,
   ) {}
 
-  /** Publish a reviewed proposal through the restricted service database role. */
+  /**
+   * Publish a reviewed proposal through the restricted service database role.
+   * @param input - Current workspace and approved proposal to publish atomically with its audit event.
+   */
   async publish(input: ProposalPublicationInput): Promise<void> {
     this.assertReviewer(input.workspaceId)
     await withRequestContext(this.database, this.context(), async (db) => {
@@ -906,7 +1020,11 @@ export class ProposalPublicationService {
     })
   }
 
-  /** Restore a prior version through a transaction that emits an audit event. */
+  /**
+   * Restore a prior version through the database procedure that also records an audit event.
+   * @param input - Current workspace, supported target, and historical version to restore.
+   * @throws When the requested version is not a positive safe integer or the procedure rejects restoration.
+   */
   async rollback(input: ProposalRollbackInput): Promise<void> {
     this.assertReviewer(input.workspaceId)
     if (!Number.isSafeInteger(input.versionNo) || input.versionNo < 1) throw new Error('version number must be positive')
@@ -946,14 +1064,23 @@ export interface NovelCreateInput {
   readonly attributes?: Record<string, unknown>
 }
 
-/** Database-backed workspace and novel lifecycle operations. */
+/**
+ * Manage workspaces and novels through an owned RLS transaction for each operation.
+ * Writes require a human principal; management requires owner or administrator permission.
+ * Workspace mismatches, insufficient roles, and database policy or constraint failures reject.
+ */
 export class WorkspaceAuthoringService {
   constructor(
     private readonly database: DatabaseClient<DshDatabase>,
     private readonly principal: AuthPrincipal,
   ) {}
 
-  /** Create a workspace and its owner membership atomically. */
+  /**
+   * Create a workspace and its owner membership atomically.
+   * @param input - Workspace display name, trimmed before persistence.
+   * @returns The new workspace ID after both rows commit.
+   * @throws When the name is blank or creation fails.
+   */
   async createWorkspace(input: WorkspaceCreateInput): Promise<string> {
     this.assertUserActor()
     if (!input.name.trim()) throw new Error('workspace name is required')
@@ -973,12 +1100,20 @@ export class WorkspaceAuthoringService {
     })
   }
 
-  /** List only workspaces visible to the authenticated principal through RLS. */
+  /**
+   * List workspaces visible to the authenticated principal through RLS.
+   * @returns Visible workspace rows, including lifecycle status, with no ordering guarantee.
+   */
   async listWorkspaces(): Promise<readonly typeof workspaces.$inferSelect[]> {
     return withRequestContext(this.database, requestContext(this.principal), async db => db.select().from(workspaces))
   }
 
-  /** Create a novel in the selected workspace after server-side role checking. */
+  /**
+   * Create a draft novel in the selected workspace for a human editor, administrator, or owner.
+   * @param input - Current workspace, novel title, and optional structured attributes.
+   * @returns The new novel ID after commit.
+   * @throws When the title is blank or the insert fails.
+   */
   async createNovel(input: NovelCreateInput): Promise<string> {
     this.assertUserActor()
     if (input.workspaceId !== this.principal.workspaceId) throw new Error('workspace context mismatch')
@@ -997,7 +1132,12 @@ export class WorkspaceAuthoringService {
     })
   }
 
-  /** Change a member role; ownership changes remain exclusively database-guarded. */
+  /**
+   * Change a member role; the database guards owner membership changes.
+   * @param workspaceId - Workspace selected by the authenticated principal.
+   * @param userId - Member whose role is changed; no matching visible row is a no-op.
+   * @param role - New non-owner role.
+   */
   async changeMemberRole(workspaceId: string, userId: string, role: 'admin' | 'editor' | 'member'): Promise<void> {
     this.assertUserActor()
     if (workspaceId !== this.principal.workspaceId) throw new Error('workspace context mismatch')
@@ -1010,7 +1150,12 @@ export class WorkspaceAuthoringService {
     })
   }
 
-  /** Add a non-owner member through the workspace RLS policy. */
+  /**
+   * Insert a non-owner workspace membership through the workspace RLS policy.
+   * @param workspaceId - Workspace selected by the authenticated principal.
+   * @param userId - Existing user to add; an existing membership can cause a uniqueness failure.
+   * @param role - Non-owner role granted to the user.
+   */
   async inviteMember(workspaceId: string, userId: string, role: 'admin' | 'editor' | 'member'): Promise<void> {
     this.assertUserActor()
     if (workspaceId !== this.principal.workspaceId) throw new Error('workspace context mismatch')
@@ -1020,7 +1165,11 @@ export class WorkspaceAuthoringService {
     })
   }
 
-  /** Revoke an active membership without deleting its audit history. */
+  /**
+   * Mark a membership revoked while retaining its row.
+   * @param workspaceId - Workspace selected by the authenticated principal.
+   * @param userId - Member to revoke; no matching visible row is a no-op.
+   */
   async revokeMember(workspaceId: string, userId: string): Promise<void> {
     this.assertUserActor()
     if (workspaceId !== this.principal.workspaceId) throw new Error('workspace context mismatch')
@@ -1033,7 +1182,12 @@ export class WorkspaceAuthoringService {
     })
   }
 
-  /** List active memberships visible to the current workspace context. */
+  /**
+   * List active memberships visible to the current workspace context.
+   * @param workspaceId - Workspace selected by the authenticated principal.
+   * @returns Visible membership rows whose revocation timestamp is null, without a defined order.
+   * @throws When the workspace differs or the principal has no workspace membership role.
+   */
   async listMembers(workspaceId: string): Promise<readonly typeof workspaceMembers.$inferSelect[]> {
     if (workspaceId !== this.principal.workspaceId) throw new Error('workspace context mismatch')
     if (!canPerform(this.principal, 'content:read')) throw new Error('workspace membership is required')
@@ -1043,7 +1197,12 @@ export class WorkspaceAuthoringService {
     )))
   }
 
-  /** Transfer ownership through the database-guarded ownership procedure. */
+  /**
+   * Transfer ownership through the database-guarded ownership procedure.
+   * @param workspaceId - Workspace selected by the authenticated principal.
+   * @param newOwnerUserId - User who will receive ownership if database eligibility checks succeed.
+   * @throws Unless the caller is the current owner and the new owner is an active, verified account.
+   */
   async transferOwnership(workspaceId: string, newOwnerUserId: string): Promise<void> {
     this.assertUserActor()
     if (workspaceId !== this.principal.workspaceId) throw new Error('workspace context mismatch')
@@ -1053,12 +1212,18 @@ export class WorkspaceAuthoringService {
     })
   }
 
-  /** Archive a workspace while retaining its contents for recovery. */
+  /**
+   * Set a workspace to archived while retaining its contents for recovery.
+   * @param workspaceId - Current workspace to archive; no matching visible row is a no-op.
+   */
   async archiveWorkspace(workspaceId: string): Promise<void> {
     await this.setWorkspaceStatus(workspaceId, 'archived')
   }
 
-  /** Restore an archived workspace. */
+  /**
+   * Set a workspace to active.
+   * @param workspaceId - Current workspace to restore; no matching visible row is a no-op.
+   */
   async restoreWorkspace(workspaceId: string): Promise<void> {
     await this.setWorkspaceStatus(workspaceId, 'active')
   }
@@ -1119,7 +1284,11 @@ export interface ChapterObjectStorage {
   assertAvailable(): Promise<void>
 }
 
-/** Reject chapter metadata that could make a persisted body unrecoverable. */
+/**
+ * Validate chapter storage metadata without fetching the body or recomputing its digest.
+ * @param input - Digest, byte count, and exactly one inline body or object key.
+ * @throws For invalid digests or byte counts, mismatched inline length, or a storage choice inconsistent with the 1 MiB limit.
+ */
 export function validateChapterContentStorage(input: ChapterContentStorageInput): void {
   if (!/^[0-9a-f]{64}$/u.test(input.contentSha256)) throw new Error('content SHA-256 must be a 64-character hexadecimal digest')
   if (!Number.isSafeInteger(input.contentBytes) || input.contentBytes < 0) {
@@ -1203,7 +1372,13 @@ export interface GenerationContextSelectionInput {
   readonly limit: number
 }
 
-/** Select a bounded, deterministic context set for a generation run. */
+/**
+ * Select active context deterministically by publication, relevance, recency, then input order.
+ * @param candidates - Candidate items; archived and deleted sources are excluded.
+ * @param limit - Maximum selected items; zero returns an empty selection.
+ * @returns A new ranked array containing the original candidate objects.
+ * @throws When the limit is not a non-negative safe integer.
+ */
 export function rankContextCandidates(candidates: readonly ContextCandidate[], limit: number): ContextCandidate[] {
   if (!Number.isSafeInteger(limit) || limit < 0) throw new Error('context limit must be a non-negative integer')
   return candidates
@@ -1221,7 +1396,11 @@ export function rankContextCandidates(candidates: readonly ContextCandidate[], l
     .map(item => item.candidate)
 }
 
-/** Durable chapter and context persistence for cross-session continuation. */
+/**
+ * Persist chapter drafts and exact generation context using an owned RLS transaction per operation.
+ * Writes require an identified generation worker in the current workspace; reads require matching workspace scope.
+ * Conflicting retry payloads and database failures reject; object-storage bodies remain caller-owned.
+ */
 export class LongformAuthoringService {
   constructor(
     private readonly database: DatabaseClient<DshDatabase>,
@@ -1229,10 +1408,14 @@ export class LongformAuthoringService {
     private readonly objectStorage?: ChapterObjectStorage,
   ) {}
 
-  /** Create or resolve an idempotent chapter draft. */
+  /**
+   * Create or resolve an idempotent chapter draft.
+   * @param input - Chapter number and metadata, source generation run, and workspace-scoped retry key.
+   * @returns The chapter ID, reusing an existing ID only when its persisted payload matches.
+   */
   async createChapterDraft(input: ChapterDraftInput): Promise<string> {
     assertGenerationWorker(this.principal)
-    this.assertWorkspace(input.workspaceId)
+    assertWorkspace(this.principal, input.workspaceId)
     return this.withContext(async (db) => {
       const [chapter] = await db.insert(chapters).values({
         workspaceId: input.workspaceId,
@@ -1264,10 +1447,16 @@ export class LongformAuthoringService {
     })
   }
 
-  /** Persist a chapter body under PostgreSQL/object-storage integrity checks. */
+  /**
+   * Persist a chapter body version after metadata checks and, for object_storage, provider-availability checks.
+   * This method does not upload objects.
+   * @param input - Parent chapter, version number, body or prewritten object key, digest, and retry key.
+   * @returns The version ID, reusing an existing ID only when its persisted payload matches.
+   * @throws For invalid metadata or, when using object_storage, an absent or unavailable provider.
+   */
   async createChapterVersionDraft(input: ChapterVersionDraftInput): Promise<string> {
     assertGenerationWorker(this.principal)
-    this.assertWorkspace(input.workspaceId)
+    assertWorkspace(this.principal, input.workspaceId)
     validateChapterContentStorage(input)
     if (input.contentStorageKind === 'object_storage') {
       if (this.objectStorage === undefined) throw new Error('object storage is required for large chapter versions')
@@ -1315,13 +1504,17 @@ export class LongformAuthoringService {
     })
   }
 
-  /** Append context selections for a run; duplicate source selections are idempotently ignored. */
+  /**
+   * Append exact context snapshots atomically; identical duplicate sources are accepted.
+   * @param itemsInput - Ranked snapshots; an empty list performs no database write.
+   * @throws For blank excerpts, workspace mismatch, or duplicate sources with different snapshot fields.
+   */
   async recordContextItems(itemsInput: readonly GenerationContextItemInput[]): Promise<void> {
     assertGenerationWorker(this.principal)
     if (itemsInput.length === 0) return
     const uniqueItems = new Map<string, GenerationContextItemInput>()
     for (const item of itemsInput) {
-      this.assertWorkspace(item.workspaceId)
+      assertWorkspace(this.principal, item.workspaceId)
       if (item.excerpt.trim() === '') throw new Error('context excerpts are required for durable replay')
       const key = generationContextItemKey(item)
       const existing = uniqueItems.get(key)
@@ -1356,10 +1549,15 @@ export class LongformAuthoringService {
     })
   }
 
-  /** Rank context candidates and persist the selected source hashes for replay. */
+  /**
+   * Serialize selection for one run and persist its ranked context snapshots.
+   * @param input - Current workspace and novel, run ID, candidates, and selection limit.
+   * @returns The existing snapshots when present, otherwise the newly ranked and persisted candidates.
+   * @throws When selected candidates lack excerpts, hashes, or token counts, or saved snapshots cannot be restored.
+   */
   async selectAndRecordContext(input: GenerationContextSelectionInput): Promise<ContextCandidate[]> {
     assertGenerationWorker(this.principal)
-    this.assertWorkspace(input.workspaceId)
+    assertWorkspace(this.principal, input.workspaceId)
     return this.withContext(async (db) => {
       // One run gets one durable context set. The transaction advisory lock
       // closes the read/select/write race between multiple workers.
@@ -1371,19 +1569,7 @@ export class LongformAuthoringService {
         if (!isContextCandidateStatus(item.sourceStatus)) {
           throw new Error('persisted generation context snapshot has an invalid source status')
         }
-        return {
-          sourceType: item.sourceType,
-          sourceId: item.sourceId,
-          workspaceId: item.workspaceId,
-          novelId: item.novelId,
-          status: item.sourceStatus,
-          relevanceScore: 0,
-          recencyScore: 0,
-          excerptHash: item.excerptHash,
-          excerpt: item.excerpt,
-          tokenCount: item.tokenCount,
-          selectionReason: item.selectionReason,
-        }
+        return persistedContextCandidate({ ...item, excerpt: item.excerpt, sourceStatus: item.sourceStatus })
       }
       const existing = await db.select().from(generationContextItems).where(and(
         eq(generationContextItems.workspaceId, input.workspaceId),
@@ -1420,22 +1606,24 @@ export class LongformAuthoringService {
     })
   }
 
-  /** Rebuild the exact persisted context selection for a generation run. */
+  /**
+   * Read persisted context snapshots in rank order without reloading mutable source records.
+   * @param workspaceId - Workspace selected by the authenticated principal.
+   * @param novelId - Novel containing the generation run.
+   * @param generationRunId - Run whose exact saved selection is requested.
+   * @returns Saved rows, or an empty array; legacy excerpt and source-status fields may be null.
+   */
   async listContextItems(
     workspaceId: string,
     novelId: string,
     generationRunId: string,
   ): Promise<readonly typeof generationContextItems.$inferSelect[]> {
-    this.assertWorkspace(workspaceId)
+    assertWorkspace(this.principal, workspaceId)
     return this.withContext(async db => db.select().from(generationContextItems).where(and(
       eq(generationContextItems.workspaceId, workspaceId),
       eq(generationContextItems.novelId, novelId),
       eq(generationContextItems.generationRunId, generationRunId),
     )).orderBy(asc(generationContextItems.rank)))
-  }
-
-  private assertWorkspace(workspaceId: string): void {
-    if (workspaceId !== this.principal.workspaceId) throw new Error('workspace context mismatch')
   }
 
   private withContext<T>(callback: (database: DshDatabase) => Promise<T>): Promise<T> {
@@ -1452,4 +1640,5 @@ export * from './context-repository.ts'
 export * from './result-repository.ts'
 export * from './deepseek-adapter.ts'
 export * from './materialization.ts'
+export { isNovelDraftTargetType } from './target-type.ts'
 export * from './workflow.ts'

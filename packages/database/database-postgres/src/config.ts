@@ -1,3 +1,4 @@
+/** Resolve deployment credentials and restricted runtime pool settings from the environment. */
 import type { DatabaseConfig, DatabaseRuntimeRole } from './types.ts'
 
 /** Defaults chosen for a small production web process. Tune through env vars. */
@@ -17,7 +18,12 @@ const databaseRuntimeRoles = new Set<DatabaseRuntimeRole>([
   'dsh_readonly',
 ])
 
-/** Reject deployment and unknown roles before a runtime pool is constructed. */
+/**
+ * Reject deployment and unknown roles before a runtime pool is constructed.
+ * @param role - PostgreSQL role requested for runtime connections.
+ * @returns On success, narrows role to the supported runtime role union.
+ * @throws {@link DatabaseConfigurationError} when the role is not a supported runtime role.
+ */
 export function assertDatabaseRuntimeRole(role: string): asserts role is DatabaseRuntimeRole {
   if (!databaseRuntimeRoles.has(role as DatabaseRuntimeRole)) {
     throw new DatabaseConfigurationError('DATABASE_RUNTIME_ROLE must select a supported dsh_* runtime role')
@@ -26,6 +32,7 @@ export function assertDatabaseRuntimeRole(role: string): asserts role is Databas
 
 /** Stable error raised when the database cannot be configured safely. */
 export class DatabaseConfigurationError extends Error {
+  /** Stable identifier for invalid deployment configuration. */
   readonly code = 'DATABASE_CONFIGURATION_INVALID'
 
   constructor(message: string) {
@@ -90,11 +97,16 @@ export function resolveDatabaseConfig(environment: NodeJS.ProcessEnv = process.e
       DEFAULT_DATABASE_POOL.connectionTimeoutMs,
     ),
     applicationName,
-    runtimeRole: configuredRole as DatabaseRuntimeRole,
+    runtimeRole: configuredRole,
   }
 }
 
-/** Resolve the deployment-only connection used to apply versioned migrations. */
+/**
+ * Resolve the deployment-only connection used to apply versioned migrations.
+ * @param environment - Environment values containing DATABASE_MIGRATION_URL.
+ * @returns The validated connection URL, retaining its credentials for the migration runner.
+ * @throws {@link DatabaseConfigurationError} when the URL is missing, invalid, or uses postgres.
+ */
 export function resolveMigrationDatabaseUrl(environment: NodeJS.ProcessEnv = process.env): string {
   const rawUrl = environment.DATABASE_MIGRATION_URL?.trim()
   if (!rawUrl) {

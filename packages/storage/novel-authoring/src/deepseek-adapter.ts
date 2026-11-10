@@ -21,10 +21,14 @@ function assertStructuredDraft(value: unknown): NovelGenerationAdapterResult {
   const read = (name: 'records' | 'proposals'): readonly JsonRecord[] => {
     const valueForName = value[name]
     if (valueForName === undefined) return []
-    if (!Array.isArray(valueForName) || valueForName.some(item => !isRecord(item))) {
+    if (!Array.isArray(valueForName)) {
       throw new Error(`DeepSeek generation ${name} must be an array of objects`)
     }
-    return valueForName
+    const items: readonly unknown[] = valueForName
+    return items.map((item) => {
+      if (!isRecord(item)) throw new Error(`DeepSeek generation ${name} must be an array of objects`)
+      return item
+    })
   }
   const records = read('records')
   const proposals = read('proposals')
@@ -78,7 +82,7 @@ export class DeepSeekNovelGenerationAdapter implements NovelGenerationAdapter {
   /** Generate structured draft records through the configured DeepSeek endpoint. */
   async generate(input: NovelGenerationAdapterInput): Promise<NovelGenerationAdapterResult> {
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), this.timeoutMs)
+    const timeout = setTimeout(() => { controller.abort() }, this.timeoutMs)
     try {
       const response = await this.fetcher(`${this.baseUrl}/chat/completions`, {
         method: 'POST',

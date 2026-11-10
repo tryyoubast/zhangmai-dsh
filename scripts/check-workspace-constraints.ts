@@ -150,6 +150,14 @@ function workspaceManifests(): WorkspaceManifest[] {
 }
 
 const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
+  // The controlled migrator reads the committed SQL journal from its package.
+  // Drizzle's source-only configuration and unreviewed scripts stay unpublished.
+  '@deepseek-ai/dsh-database-postgres': [
+    'migrations/*.sql',
+    'migrations/meta/_journal.json',
+    'scripts/migrate.js',
+    'scripts/bootstrap-migrator-ownership.sql',
+  ],
   // Statically linked client libraries keep their stylesheets next to the emitted
   // JavaScript, which imports them by relative path: the compile shell runs
   // them through its own CSS pipeline, so the sheets are published artifacts.

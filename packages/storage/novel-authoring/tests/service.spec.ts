@@ -26,17 +26,17 @@ const workerPrincipal: AuthPrincipal = { ...principal, actorType: 'agent', agent
 
 describe('novel authoring permissions', () => {
   it('rejects stale publication bases before opening a database transaction', () => {
-    expect(() => assertOptimisticVersion(4, 3)).toThrow('version conflict')
-    expect(() => assertOptimisticVersion(4, 4)).not.toThrow()
+    expect(() => { assertOptimisticVersion(4, 3) }).toThrow('version conflict')
+    expect(() => { assertOptimisticVersion(4, 4) }).not.toThrow()
   })
 
   it('allows only reviewer or publication-service proposal transitions', () => {
-    expect(() => assertProposalReviewTransition('draft', 'approved', 'user')).not.toThrow()
-    expect(() => assertProposalReviewTransition('draft', 'rejected', 'user')).not.toThrow()
-    expect(() => assertProposalReviewTransition('rejected', 'draft', 'user')).not.toThrow()
-    expect(() => assertProposalReviewTransition('approved', 'published', 'service')).not.toThrow()
-    expect(() => assertProposalReviewTransition('draft', 'published', 'agent')).toThrow('invalid proposal transition')
-    expect(() => assertProposalReviewTransition('draft', 'approved', 'agent')).toThrow('invalid proposal transition')
+    expect(() => { assertProposalReviewTransition('draft', 'approved', 'user') }).not.toThrow()
+    expect(() => { assertProposalReviewTransition('draft', 'rejected', 'user') }).not.toThrow()
+    expect(() => { assertProposalReviewTransition('rejected', 'draft', 'user') }).not.toThrow()
+    expect(() => { assertProposalReviewTransition('approved', 'published', 'service') }).not.toThrow()
+    expect(() => { assertProposalReviewTransition('draft', 'published', 'agent') }).toThrow('invalid proposal transition')
+    expect(() => { assertProposalReviewTransition('draft', 'approved', 'agent') }).toThrow('invalid proposal transition')
   })
 
   it('ranks published and relevant context before draft-only context', () => {
@@ -49,12 +49,12 @@ describe('novel authoring permissions', () => {
   })
 
   it('accepts only the generation-run transitions supported by workers', () => {
-    expect(() => assertGenerationRunTransition('queued', 'running')).not.toThrow()
-    expect(() => assertGenerationRunTransition('running', 'completed')).not.toThrow()
-    expect(() => assertGenerationRunTransition('running', 'failed')).not.toThrow()
-    expect(() => assertGenerationRunTransition('running', 'cancelled')).not.toThrow()
-    expect(() => assertGenerationRunTransition('queued', 'completed')).toThrow('invalid generation run state transition')
-    expect(() => assertGenerationRunTransition('completed', 'running')).toThrow('invalid generation run state transition')
+    expect(() => { assertGenerationRunTransition('queued', 'running') }).not.toThrow()
+    expect(() => { assertGenerationRunTransition('running', 'completed') }).not.toThrow()
+    expect(() => { assertGenerationRunTransition('running', 'failed') }).not.toThrow()
+    expect(() => { assertGenerationRunTransition('running', 'cancelled') }).not.toThrow()
+    expect(() => { assertGenerationRunTransition('queued', 'completed') }).toThrow('invalid generation run state transition')
+    expect(() => { assertGenerationRunTransition('completed', 'running') }).toThrow('invalid generation run state transition')
   })
 
   it('requires an object-storage capability for large chapter versions', async () => {
@@ -67,46 +67,46 @@ describe('novel authoring permissions', () => {
   })
 
   it('rejects chapter storage metadata that cannot be recovered', () => {
-    expect(() => validateChapterContentStorage({
+    expect(() => { validateChapterContentStorage({
       contentSha256: 'a'.repeat(64),
       contentBytes: 7,
       contentStorageKind: 'postgres_text',
       contentText: 'chapter',
-    })).not.toThrow()
-    expect(() => validateChapterContentStorage({
+    }) }).not.toThrow()
+    expect(() => { validateChapterContentStorage({
       contentSha256: 'a'.repeat(64),
       contentBytes: 2 * 1024 * 1024,
       contentStorageKind: 'object_storage',
       contentObjectKey: 'novels/n1/chapters/c1/v1',
-    })).not.toThrow()
-    expect(() => validateChapterContentStorage({
+    }) }).not.toThrow()
+    expect(() => { validateChapterContentStorage({
       contentSha256: 'a'.repeat(64),
       contentBytes: 2 * 1024 * 1024,
       contentStorageKind: 'postgres_text',
       contentText: 'chapter',
-    })).toThrow('object storage is required')
-    expect(() => validateChapterContentStorage({
+    }) }).toThrow('object storage is required')
+    expect(() => { validateChapterContentStorage({
       contentSha256: 'not-a-sha',
       contentBytes: 7,
       contentStorageKind: 'postgres_text',
       contentText: 'chapter',
-    })).toThrow('SHA-256')
+    }) }).toThrow('SHA-256')
   })
 
   it('accepts an editor principal for draft creation', () => {
-    expect(() => assertDraftAuthor(principal)).not.toThrow()
+    expect(() => { assertDraftAuthor(principal) }).not.toThrow()
   })
 
   it('rejects a member principal and an unbound agent', () => {
-    expect(() => assertDraftAuthor({ ...principal, roles: ['member'] })).toThrow('editor permission')
-    expect(() => assertDraftAuthor({ ...principal, roles: ['editor'], actorType: 'agent' })).toThrow('agent principal')
+    expect(() => { assertDraftAuthor({ ...principal, roles: ['member'] }) }).toThrow('editor permission')
+    expect(() => { assertDraftAuthor({ ...principal, roles: ['editor'], actorType: 'agent' }) }).toThrow('agent principal')
   })
 
   it('requires an explicitly bound agent for generation writes and lifecycle updates', () => {
-    expect(() => assertGenerationWorker(principal)).toThrow('generation worker')
-    expect(() => assertGenerationWorker({ ...principal, actorType: 'agent' })).toThrow('generation worker')
-    expect(() => assertGenerationWorker({ ...principal, roles: ['member'], actorType: 'agent', agentPrincipalId: 'agent-1' })).toThrow('editor permission')
-    expect(() => assertGenerationWorker({ ...principal, actorType: 'agent', agentPrincipalId: 'agent-1' })).not.toThrow()
+    expect(() => { assertGenerationWorker(principal) }).toThrow('generation worker')
+    expect(() => { assertGenerationWorker({ ...principal, actorType: 'agent' }) }).toThrow('generation worker')
+    expect(() => { assertGenerationWorker({ ...principal, roles: ['member'], actorType: 'agent', agentPrincipalId: 'agent-1' }) }).toThrow('editor permission')
+    expect(() => { assertGenerationWorker({ ...principal, actorType: 'agent', agentPrincipalId: 'agent-1' }) }).not.toThrow()
   })
 
   it('exposes draft writers for every fixed novel entity type', () => {

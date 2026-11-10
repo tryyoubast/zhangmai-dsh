@@ -110,6 +110,8 @@
     "apps/desktop/tests/**/*.ts",
     "benchmarks/**/*.ts",
     "packages/*/*/tests/**/*.ts",
+    "packages/identity/user-auth/tests-postgres/**/*.ts",
+    "vitest.postgres.config.ts",
     "scripts/**/*.ts",
     "website/**/*.ts",
     "website/.vitepress/**/*.ts"

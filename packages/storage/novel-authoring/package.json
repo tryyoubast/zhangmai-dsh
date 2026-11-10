@@ -24,6 +24,12 @@
     "test": "pnpm --dir ../../../ exec node node_modules/vitest/vitest.mjs run --config vitest.config.ts packages/storage/novel-authoring/tests"
   },
   "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "workspace:^"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:^"
+  },
   "dependencies": {
     "@deepseek-ai/dsh-database-postgres": "workspace:^",
     "@deepseek-ai/dsh-user-auth": "workspace:^"

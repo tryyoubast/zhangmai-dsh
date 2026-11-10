@@ -14,6 +14,12 @@ AI 生成写入先查询已有记录，再插入新记录。并发 Worker 可能
 
 生成任务和提案使用 `(workspaceId, idempotencyKey)`，普通草稿表使用 `(workspaceId, sourceIdempotencyKey)`；部分来源幂等索引附带 `sourceIdempotencyKey IS NOT NULL` 谓词。上下文条目使用现有的 `(generationRunId, sourceType, sourceId)` 唯一约束，并校验持久化快照字段。已有记录不会更新，其他业务唯一约束继续作为数据库错误透传。带 advisory lock 的上下文选择和生成结果仓库保持不变。无需迁移。
 
+## 考虑过的替代方案
+
+**先读后插入。** 上述竞态仍然存在，因为不存在的行无法为另一个 Worker 保留其唯一键。
+
+**更新冲突记录。** `ON CONFLICT DO UPDATE` 会在重试时修改已有草稿，违背 writer 不改变重试记录、明确拒绝内容不一致的行为。
+
 ## 后果
 
 - 并发重试会收敛到同一条持久化记录，不再暴露唯一键异常。

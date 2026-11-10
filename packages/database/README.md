@@ -13,6 +13,8 @@ The database group owns production database connectivity and migration foundatio
 
 ## Packages
 
+The [database subsystem](../../docs/subsystems/database.md) describes pool ownership, trusted request transactions, and migration/runtime roles.
+
 | Package | Role |
 |---|---|
 | [`database-postgres`](database-postgres/README.md) | PostgreSQL pool, Drizzle schema, migration SQL, roles, grants, and RLS foundation |

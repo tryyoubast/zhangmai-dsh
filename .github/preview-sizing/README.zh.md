@@ -28,6 +28,8 @@
 
 运行器选择不改变 PR 事件、按 PR 取消、不可变安装、只恢复的依赖缓存、完整工作区构建、预览打包、sourcemap 删除，以及复制到部署根目录的预览页面。Cloudflare 仅将构建站点上传至 PR 分支别名。受保护镜像检查要求 HTTP 200、无传输内容编码及 gzip 魔数字节；URL 评论保持幂等。Dependabot 与其他 PR 作者仍使用 GitHub 托管机器。
 
+每个 PR 都无需部署凭据即可构建预览。发布要求仓库变量 `DSH_CLOUDFLARE_PREVIEW_ENABLED=true`、源分支位于同一仓库，以及 PR 作者为人工用户；否则跳过上传、受保护镜像验证和 URL 评论。启用发布后，必须提供 secret `CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID`、`CF_ACCESS_CLIENT_ID` 和 `CF_ACCESS_CLIENT_SECRET`；缺少任一凭据都会在上传前明确失败。启用发布前须在工作流中将 `CF_PROJECT` 设为目标 Pages 项目。
+
 <a id="dev-note"></a>
 
 ## 开发备注

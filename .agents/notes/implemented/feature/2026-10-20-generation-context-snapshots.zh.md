@@ -1,8 +1,8 @@
-# Agent Note：可重放的生成上下文快照
-
-[English](2026-10-20-generation-context-snapshots.md) | 中文
+# Agent Note: 可重放的生成上下文快照
 
 Status: implemented
+
+[English](2026-10-20-generation-context-snapshots.md) | 中文
 
 ## 问题
 

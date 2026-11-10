@@ -22,10 +22,10 @@ export class PostgresGenerationResultRepository implements GenerationResultRepos
   ) {}
 
   async findByIdempotencyKey(input: GenerationResultLookup): Promise<DraftGenerationResult | undefined> {
-    this.assertScope(input.workspaceId, input.novelId)
+    const context = this.assertScope(input.workspaceId, input.novelId)
     const lockedDatabase = this.lockedDatabase.getStore()
     if (lockedDatabase !== undefined) return this.findByDatabase(lockedDatabase, input)
-    return withRequestContext(this.database, this.context(), async db => this.findByDatabase(db, input))
+    return withRequestContext(this.database, context, async db => this.findByDatabase(db, input))
   }
 
   private async findByDatabase(db: DshDatabase, input: GenerationResultLookup): Promise<DraftGenerationResult | undefined> {
@@ -41,16 +41,16 @@ export class PostgresGenerationResultRepository implements GenerationResultRepos
       novelId: row.novelId,
       idempotencyKey: row.idempotencyKey,
       selectedContext: row.selectedContext as unknown as DraftGenerationResult['selectedContext'],
-      records: row.records as DraftGenerationResult['records'],
-      proposals: row.proposals as DraftGenerationResult['proposals'],
+      records: row.records,
+      proposals: row.proposals,
     }
   }
 
   async save(result: DraftGenerationResult): Promise<void> {
-    this.assertScope(result.workspaceId, result.novelId)
+    const context = this.assertScope(result.workspaceId, result.novelId)
     const lockedDatabase = this.lockedDatabase.getStore()
     if (lockedDatabase !== undefined) return this.saveWithDatabase(lockedDatabase, result)
-    await withRequestContext(this.database, this.context(), async db => this.saveWithDatabase(db, result))
+    await withRequestContext(this.database, context, async db => this.saveWithDatabase(db, result))
   }
 
   private async saveWithDatabase(db: DshDatabase, result: DraftGenerationResult): Promise<void> {
@@ -66,14 +66,14 @@ export class PostgresGenerationResultRepository implements GenerationResultRepos
   }
 
   async withIdempotencyLock<T>(input: GenerationResultLookup, callback: () => Promise<T>): Promise<T> {
-    this.assertScope(input.workspaceId, input.novelId)
-    const connect = this.database.pool.connect
-    if (connect === undefined) return callback()
-    const client = await connect()
+    const context = this.assertScope(input.workspaceId, input.novelId)
+    const pool = this.database.pool
+    if (pool.connect === undefined) return callback()
+    const client = await pool.connect()
     const key = `${input.workspaceId}:${input.novelId}:${input.idempotencyKey}`
     try {
       await client.query('BEGIN')
-      for (const [name, value] of requestContextSettings(this.context())) {
+      for (const [name, value] of requestContextSettings(context)) {
         await client.query('SELECT set_config($1, $2, true)', [name, value])
       }
       await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [key])
@@ -93,12 +93,11 @@ export class PostgresGenerationResultRepository implements GenerationResultRepos
     }
   }
 
-  private assertScope(workspaceId: string, novelId: string): void {
+  private assertScope(workspaceId: string, novelId: string): ReturnType<PostgresGenerationResultRepository['context']> {
     if (workspaceId !== this.principal.workspaceId || workspaceId.trim() === '' || novelId.trim() === '') {
       throw new Error('workspace context mismatch')
     }
-    if (this.principal.actorType !== 'agent') throw new Error('generation result persistence requires an agent actor')
-    if (this.principal.agentPrincipalId === undefined) throw new Error('agent result persistence requires an agent principal')
+    return this.context()
   }
 
   private context(): {
@@ -107,9 +106,8 @@ export class PostgresGenerationResultRepository implements GenerationResultRepos
     actorType: 'agent'
     agentPrincipalId: string
   } {
-    if (this.principal.actorType !== 'agent' || this.principal.agentPrincipalId === undefined) {
-      throw new Error('agent result persistence requires an agent principal')
-    }
+    if (this.principal.actorType !== 'agent') throw new Error('generation result persistence requires an agent actor')
+    if (this.principal.agentPrincipalId === undefined) throw new Error('agent result persistence requires an agent principal')
     return {
       userId: this.principal.userId,
       workspaceId: this.principal.workspaceId,

@@ -38,6 +38,10 @@ function rowKey(table: object, values: Record<string, unknown>): string {
   return `${values.workspaceId}:${values.sourceIdempotencyKey}`
 }
 
+function isBatch(values: Record<string, unknown> | readonly Record<string, unknown>[]): values is readonly Record<string, unknown>[] {
+  return Array.isArray(values)
+}
+
 function fakeDatabase(): { database: unknown; state: FakeState } {
   const state: FakeState = { rows: new Map(), inserts: [], selects: [], nextId: 1, rollbacks: 0 }
   const database = {
@@ -55,7 +59,7 @@ function fakeDatabase(): { database: unknown; state: FakeState } {
                   state.selects.push(selection)
                   const result = async () => {
                     const rows = state.rows.get(table) ?? []
-                    const selectedRows = selection.limit === true ? rows.slice(0, 1) : rows
+                    const selectedRows = selection.limit ? rows.slice(0, 1) : rows
                     return selectedRows.map(row => ({ ...row }))
                   }
                   return {
@@ -88,12 +92,12 @@ function fakeDatabase(): { database: unknown; state: FakeState } {
                     then: (resolve: (value: unknown) => unknown) => {
                       if (state.insertError !== undefined) throw state.insertError
                       const rows = state.rows.get(table) ?? []
-                      const batch = Array.isArray(values) ? values : [values]
+                      const batch: readonly Record<string, unknown>[] = isBatch(values) ? values : [values]
                       const inserted: Row[] = []
                       for (const value of batch) {
                         const existing = rows.find(row => rowKey(table, row) === rowKey(table, value))
                         if (existing !== undefined) continue
-                        const row = { ...value, id: `generated-${state.nextId++}` }
+                        const row: Row = { ...value, id: `generated-${state.nextId++}` }
                         rows.push(row)
                         inserted.push(row)
                       }

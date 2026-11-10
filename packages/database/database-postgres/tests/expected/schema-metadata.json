@@ -1,0 +1,1308 @@
+{
+  "auditEvents": {
+    "schema": "security",
+    "name": "audit_events",
+    "columns": [
+      {"name":"id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":true,"hasDefault":true,"default":{"sql":"gen_random_uuid()","params":[]},"isUnique":false},
+      {"name":"workspace_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"actor_type","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"actor_id","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"action","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"target_type","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"target_id","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"metadata","sqlType":"jsonb","dataType":"json","columnType":"PgJsonb","notNull":true,"primary":false,"hasDefault":true,"default":{},"isUnique":false},
+      {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false}
+    ],
+    "indexes": [
+      {"name":"audit_events_action_idx","unique":false,"only":false,"method":"btree","columns":[{"name":"action","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}},{"name":"created_at","keyAsName":false,"type":"PgTimestamp","indexConfig":{"order":"asc","nulls":"last"}}]},
+      {"name":"audit_events_workspace_idx","unique":false,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"created_at","keyAsName":false,"type":"PgTimestamp","indexConfig":{"order":"asc","nulls":"last"}}]}
+    ],
+    "primaryKeys": [],
+    "foreignKeys": [
+      {"name":"audit_events_workspace_id_workspaces_id_fk","columns":["workspace_id"],"foreignSchema":"app","foreignTable":"workspaces","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"}
+    ],
+    "uniqueConstraints": [],
+    "checks": [],
+    "enableRLS": false,
+    "policies": []
+  },
+  "chapterSummaries": {
+    "schema": "novel",
+    "name": "chapter_summaries",
+    "columns": [
+      {"name":"id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":true,"hasDefault":true,"default":{"sql":"gen_random_uuid()","params":[]},"isUnique":false},
+      {"name":"workspace_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"novel_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"chapter_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"chapter_version_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"summary_kind","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"content_text","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"content_sha256","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"status","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":true,"default":"draft","isUnique":false},
+      {"name":"source_generation_run_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_idempotency_key","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_by_user_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false},
+      {"name":"updated_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false},
+      {"name":"deleted_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":false,"primary":false,"hasDefault":false,"isUnique":false}
+    ],
+    "indexes": [
+      {"name":"chapter_summaries_workspace_idempotency_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_idempotency_key","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}],"where":{"sql":"\"novel\".\"chapter_summaries\".\"source_idempotency_key\" IS NOT NULL","params":[]}},
+      {"name":"novel_chapter_summaries_context_search_idx","unique":false,"only":true,"method":"gin","columns":[{"sql":"to_tsvector('simple', left(\"novel\".\"chapter_summaries\".\"content_text\", 16384))","params":[]}]},
+      {"name":"chapter_summaries_workspace_chapter_idx","unique":false,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"novel_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"chapter_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"created_at","keyAsName":false,"type":"PgTimestamp","indexConfig":{"order":"desc","nulls":"last"}}]}
+    ],
+    "primaryKeys": [],
+    "foreignKeys": [
+      {"name":"chapter_summaries_workspace_id_workspaces_id_fk","columns":["workspace_id"],"foreignSchema":"app","foreignTable":"workspaces","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"chapter_summaries_created_by_user_id_users_id_fk","columns":["created_by_user_id"],"foreignSchema":"auth","foreignTable":"users","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"chapter_summaries_workspace_chapter_fkey","columns":["workspace_id","novel_id","chapter_id"],"foreignSchema":"novel","foreignTable":"chapters","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"chapter_summaries_workspace_version_fkey","columns":["workspace_id","chapter_version_id"],"foreignSchema":"novel","foreignTable":"chapter_versions","foreignColumns":["workspace_id","id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"chapter_summaries_generation_run_fkey","columns":["workspace_id","novel_id","source_generation_run_id"],"foreignSchema":"ai","foreignTable":"generation_runs","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"}
+    ],
+    "uniqueConstraints": [
+      {"name":"chapter_summaries_workspace_id_id_key","columns":["workspace_id","id"],"nullsNotDistinct":false},
+      {"name":"chapter_summaries_unique_kind","columns":["workspace_id","chapter_version_id","summary_kind"],"nullsNotDistinct":false}
+    ],
+    "checks": [
+      {"name":"chapter_summaries_kind_check","value":{"sql":"\"novel\".\"chapter_summaries\".\"summary_kind\" IN ('short', 'detailed', 'facts')","params":[]}},
+      {"name":"chapter_summaries_status_check","value":{"sql":"\"novel\".\"chapter_summaries\".\"status\" IN ('draft', 'published', 'archived', 'deleted')","params":[]}}
+    ],
+    "enableRLS": false,
+    "policies": []
+  },
+  "chapterVersions": {
+    "schema": "novel",
+    "name": "chapter_versions",
+    "columns": [
+      {"name":"id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":true,"hasDefault":true,"default":{"sql":"gen_random_uuid()","params":[]},"isUnique":false},
+      {"name":"workspace_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"novel_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"chapter_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"version_no","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"status","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":true,"default":"draft","isUnique":false},
+      {"name":"content_sha256","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"content_bytes","sqlType":"bigint","dataType":"number","columnType":"PgBigInt53","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"content_storage_kind","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"content_text","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"content_object_key","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"summary","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_type","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_by_user_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_generation_run_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_idempotency_key","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false}
+    ],
+    "indexes": [
+      {"name":"chapter_versions_workspace_idempotency_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_idempotency_key","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}],"where":{"sql":"\"novel\".\"chapter_versions\".\"source_idempotency_key\" IS NOT NULL","params":[]}},
+      {"name":"novel_chapter_versions_context_search_idx","unique":false,"only":true,"method":"gin","columns":[{"sql":"to_tsvector('simple', left(coalesce(\"novel\".\"chapter_versions\".\"summary\", '') || E'\\n' || coalesce(\"novel\".\"chapter_versions\".\"content_text\", \"novel\".\"chapter_versions\".\"content_object_key\", ''), 16384))","params":[]}]},
+      {"name":"chapter_versions_workspace_chapter_idx","unique":false,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"novel_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"chapter_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"version_no","keyAsName":false,"type":"PgInteger","indexConfig":{"order":"desc","nulls":"last"}}]}
+    ],
+    "primaryKeys": [],
+    "foreignKeys": [
+      {"name":"chapter_versions_workspace_id_workspaces_id_fk","columns":["workspace_id"],"foreignSchema":"app","foreignTable":"workspaces","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"chapter_versions_created_by_user_id_users_id_fk","columns":["created_by_user_id"],"foreignSchema":"auth","foreignTable":"users","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"chapter_versions_workspace_chapter_fkey","columns":["workspace_id","novel_id","chapter_id"],"foreignSchema":"novel","foreignTable":"chapters","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"chapter_versions_generation_run_fkey","columns":["workspace_id","novel_id","source_generation_run_id"],"foreignSchema":"ai","foreignTable":"generation_runs","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"}
+    ],
+    "uniqueConstraints": [
+      {"name":"chapter_versions_workspace_id_id_key","columns":["workspace_id","id"],"nullsNotDistinct":false},
+      {"name":"chapter_versions_workspace_chapter_no_key","columns":["workspace_id","chapter_id","version_no"],"nullsNotDistinct":false}
+    ],
+    "checks": [
+      {"name":"chapter_versions_status_check","value":{"sql":"\"novel\".\"chapter_versions\".\"status\" IN ('draft', 'published', 'archived', 'deleted')","params":[]}},
+      {"name":"chapter_versions_number_check","value":{"sql":"\"novel\".\"chapter_versions\".\"version_no\" > 0","params":[]}},
+      {"name":"chapter_versions_bytes_check","value":{"sql":"\"novel\".\"chapter_versions\".\"content_bytes\" >= 0","params":[]}},
+      {"name":"chapter_versions_storage_kind_check","value":{"sql":"\"novel\".\"chapter_versions\".\"content_storage_kind\" IN ('postgres_text', 'object_storage')","params":[]}},
+      {"name":"chapter_versions_storage_check","value":{"sql":"(\n    (\"novel\".\"chapter_versions\".\"content_storage_kind\" = 'postgres_text' AND \"novel\".\"chapter_versions\".\"content_text\" IS NOT NULL AND \"novel\".\"chapter_versions\".\"content_object_key\" IS NULL AND \"novel\".\"chapter_versions\".\"content_bytes\" <= 1048576)\n    OR (\"novel\".\"chapter_versions\".\"content_storage_kind\" = 'object_storage' AND \"novel\".\"chapter_versions\".\"content_object_key\" IS NOT NULL AND \"novel\".\"chapter_versions\".\"content_text\" IS NULL AND \"novel\".\"chapter_versions\".\"content_bytes\" > 1048576)\n  )","params":[]}}
+    ],
+    "enableRLS": false,
+    "policies": []
+  },
+  "chapters": {
+    "schema": "novel",
+    "name": "chapters",
+    "columns": [
+      {"name":"id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":true,"hasDefault":true,"default":{"sql":"gen_random_uuid()","params":[]},"isUnique":false},
+      {"name":"workspace_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"novel_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"chapter_no","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"title","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"summary","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"status","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":true,"default":"draft","isUnique":false},
+      {"name":"current_version_no","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":true,"default":1,"isUnique":false},
+      {"name":"created_by_user_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_generation_run_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_idempotency_key","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false},
+      {"name":"updated_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false},
+      {"name":"deleted_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":false,"primary":false,"hasDefault":false,"isUnique":false}
+    ],
+    "indexes": [
+      {"name":"chapters_workspace_idempotency_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_idempotency_key","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}],"where":{"sql":"\"novel\".\"chapters\".\"source_idempotency_key\" IS NOT NULL","params":[]}},
+      {"name":"novel_chapters_context_search_idx","unique":false,"only":true,"method":"gin","columns":[{"sql":"to_tsvector('simple', left(\"novel\".\"chapters\".\"title\" || E'\\n' || coalesce(\"novel\".\"chapters\".\"summary\", ''), 16384))","params":[]}]},
+      {"name":"chapters_workspace_novel_status_idx","unique":false,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"novel_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"status","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}},{"name":"chapter_no","keyAsName":false,"type":"PgInteger","indexConfig":{"order":"asc","nulls":"last"}}]}
+    ],
+    "primaryKeys": [],
+    "foreignKeys": [
+      {"name":"chapters_workspace_id_workspaces_id_fk","columns":["workspace_id"],"foreignSchema":"app","foreignTable":"workspaces","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"chapters_created_by_user_id_users_id_fk","columns":["created_by_user_id"],"foreignSchema":"auth","foreignTable":"users","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"chapters_workspace_novel_fkey","columns":["workspace_id","novel_id"],"foreignSchema":"novel","foreignTable":"novels","foreignColumns":["workspace_id","id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"chapters_generation_run_fkey","columns":["workspace_id","novel_id","source_generation_run_id"],"foreignSchema":"ai","foreignTable":"generation_runs","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"}
+    ],
+    "uniqueConstraints": [
+      {"name":"chapters_workspace_id_id_key","columns":["workspace_id","id"],"nullsNotDistinct":false},
+      {"name":"chapters_workspace_novel_no_key","columns":["workspace_id","novel_id","chapter_no"],"nullsNotDistinct":false},
+      {"name":"chapters_workspace_novel_id_key","columns":["workspace_id","novel_id","id"],"nullsNotDistinct":false}
+    ],
+    "checks": [
+      {"name":"chapters_status_check","value":{"sql":"\"novel\".\"chapters\".\"status\" IN ('draft', 'published', 'archived', 'deleted')","params":[]}},
+      {"name":"chapters_number_check","value":{"sql":"\"novel\".\"chapters\".\"chapter_no\" > 0","params":[]}},
+      {"name":"chapters_version_check","value":{"sql":"\"novel\".\"chapters\".\"current_version_no\" > 0","params":[]}}
+    ],
+    "enableRLS": false,
+    "policies": []
+  },
+  "characterSkillVersions": {
+    "schema": "novel",
+    "name": "character_skill_versions",
+    "columns": [
+      {"name":"id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":true,"hasDefault":true,"default":{"sql":"gen_random_uuid()","params":[]},"isUnique":false},
+      {"name":"workspace_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"novel_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"character_skill_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"version_no","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"status","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":true,"default":"draft","isUnique":false},
+      {"name":"content_jsonb","sqlType":"jsonb","dataType":"json","columnType":"PgJsonb","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_type","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_by_user_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_generation_run_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_idempotency_key","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false}
+    ],
+    "indexes": [
+      {"name":"character_skill_versions_workspace_entity_idx","unique":false,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"novel_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"character_skill_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"version_no","keyAsName":false,"type":"PgInteger","indexConfig":{"order":"desc","nulls":"last"}}]},
+      {"name":"character_skill_versions_workspace_idempotency_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_idempotency_key","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}]}
+    ],
+    "primaryKeys": [],
+    "foreignKeys": [
+      {"name":"character_skill_versions_created_by_user_id_users_id_fk","columns":["created_by_user_id"],"foreignSchema":"auth","foreignTable":"users","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"character_skill_versions_workspace_novel_entity_fkey","columns":["workspace_id","novel_id","character_skill_id"],"foreignSchema":"novel","foreignTable":"character_skills","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"character_skill_versions_workspace_novel_run_fkey","columns":["workspace_id","novel_id","source_generation_run_id"],"foreignSchema":"ai","foreignTable":"generation_runs","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"}
+    ],
+    "uniqueConstraints": [
+      {"name":"character_skill_versions_workspace_entity_version_key","columns":["workspace_id","character_skill_id","version_no"],"nullsNotDistinct":false}
+    ],
+    "checks": [
+      {"name":"character_skill_versions_version_no_check","value":{"sql":"\"novel\".\"character_skill_versions\".\"version_no\" > 0","params":[]}},
+      {"name":"character_skill_versions_status_check","value":{"sql":"\"novel\".\"character_skill_versions\".\"status\" IN ('draft', 'published', 'archived', 'deleted')","params":[]}}
+    ],
+    "enableRLS": false,
+    "policies": []
+  },
+  "characterSkills": {
+    "schema": "novel",
+    "name": "character_skills",
+    "columns": [
+      {"name":"id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"gen_random_uuid()","params":[]},"isUnique":false},
+      {"name":"workspace_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"novel_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"character_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"skill_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"relation_type","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"status","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":true,"default":"draft","isUnique":false},
+      {"name":"attributes_jsonb","sqlType":"jsonb","dataType":"json","columnType":"PgJsonb","notNull":true,"primary":false,"hasDefault":true,"default":{},"isUnique":false},
+      {"name":"attributes_schema_version","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":true,"default":1,"isUnique":false},
+      {"name":"current_version_no","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":true,"default":1,"isUnique":false},
+      {"name":"source_version_no","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_by_user_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_generation_run_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_idempotency_key","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false},
+      {"name":"updated_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false},
+      {"name":"deleted_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":false,"primary":false,"hasDefault":false,"isUnique":false}
+    ],
+    "indexes": [
+      {"name":"novel_character_skills_context_search_idx","unique":false,"only":true,"method":"gin","columns":[{"sql":"to_tsvector('simple', left(\"novel\".\"character_skills\".\"relation_type\" || E'\\n' || \"novel\".\"character_skills\".\"attributes_jsonb\"::text, 16384))","params":[]}]},
+      {"name":"character_skills_workspace_idempotency_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_idempotency_key","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}]}
+    ],
+    "primaryKeys": [
+      {"name":"character_skills_workspace_id_novel_id_character_id_skill_id_pk","columns":["workspace_id","novel_id","character_id","skill_id"]}
+    ],
+    "foreignKeys": [
+      {"name":"character_skills_workspace_id_workspaces_id_fk","columns":["workspace_id"],"foreignSchema":"app","foreignTable":"workspaces","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"character_skills_created_by_user_id_users_id_fk","columns":["created_by_user_id"],"foreignSchema":"auth","foreignTable":"users","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"character_skills_workspace_character_fkey","columns":["workspace_id","novel_id","character_id"],"foreignSchema":"novel","foreignTable":"characters","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"character_skills_workspace_skill_fkey","columns":["workspace_id","novel_id","skill_id"],"foreignSchema":"novel","foreignTable":"skills","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"character_skills_workspace_generation_run_fkey","columns":["workspace_id","novel_id","source_generation_run_id"],"foreignSchema":"ai","foreignTable":"generation_runs","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"}
+    ],
+    "uniqueConstraints": [
+      {"name":"character_skills_workspace_novel_id_id_key","columns":["workspace_id","novel_id","id"],"nullsNotDistinct":false}
+    ],
+    "checks": [
+      {"name":"character_skills_status_check","value":{"sql":"\"novel\".\"character_skills\".\"status\" IN ('draft', 'published', 'archived', 'deleted')","params":[]}}
+    ],
+    "enableRLS": false,
+    "policies": []
+  },
+  "characterVersions": {
+    "schema": "novel",
+    "name": "character_versions",
+    "columns": [
+      {"name":"id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":true,"hasDefault":true,"default":{"sql":"gen_random_uuid()","params":[]},"isUnique":false},
+      {"name":"workspace_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"novel_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"character_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"version_no","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"status","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":true,"default":"draft","isUnique":false},
+      {"name":"content_jsonb","sqlType":"jsonb","dataType":"json","columnType":"PgJsonb","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_type","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_by_user_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_generation_run_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_idempotency_key","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false}
+    ],
+    "indexes": [
+      {"name":"character_versions_character_no_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"character_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"version_no","keyAsName":false,"type":"PgInteger","indexConfig":{"order":"asc","nulls":"last"}}]},
+      {"name":"character_versions_workspace_idempotency_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_idempotency_key","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}]},
+      {"name":"character_versions_workspace_idx","unique":false,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}}]}
+    ],
+    "primaryKeys": [],
+    "foreignKeys": [
+      {"name":"character_versions_workspace_id_workspaces_id_fk","columns":["workspace_id"],"foreignSchema":"app","foreignTable":"workspaces","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"character_versions_created_by_user_id_users_id_fk","columns":["created_by_user_id"],"foreignSchema":"auth","foreignTable":"users","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"character_versions_workspace_novel_character_fkey","columns":["workspace_id","novel_id","character_id"],"foreignSchema":"novel","foreignTable":"characters","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"character_versions_workspace_novel_run_fkey","columns":["workspace_id","novel_id","source_generation_run_id"],"foreignSchema":"ai","foreignTable":"generation_runs","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"}
+    ],
+    "uniqueConstraints": [],
+    "checks": [
+      {"name":"character_versions_status_check","value":{"sql":"\"novel\".\"character_versions\".\"status\" IN ('draft', 'published', 'archived', 'deleted')","params":[]}}
+    ],
+    "enableRLS": false,
+    "policies": []
+  },
+  "characters": {
+    "schema": "novel",
+    "name": "characters",
+    "columns": [
+      {"name":"id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":true,"hasDefault":true,"default":{"sql":"gen_random_uuid()","params":[]},"isUnique":false},
+      {"name":"workspace_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"novel_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"name","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"summary","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"status","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":true,"default":"draft","isUnique":false},
+      {"name":"attributes_jsonb","sqlType":"jsonb","dataType":"json","columnType":"PgJsonb","notNull":true,"primary":false,"hasDefault":true,"default":{},"isUnique":false},
+      {"name":"attributes_schema_version","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":true,"default":1,"isUnique":false},
+      {"name":"current_version_no","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":true,"default":1,"isUnique":false},
+      {"name":"created_by_user_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_generation_run_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_idempotency_key","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false},
+      {"name":"updated_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false},
+      {"name":"deleted_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":false,"primary":false,"hasDefault":false,"isUnique":false}
+    ],
+    "indexes": [
+      {"name":"characters_workspace_idempotency_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_idempotency_key","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}]},
+      {"name":"novel_characters_context_search_idx","unique":false,"only":true,"method":"gin","columns":[{"sql":"to_tsvector('simple', left(\"novel\".\"characters\".\"name\" || E'\\n' || coalesce(\"novel\".\"characters\".\"summary\", '') || E'\\n' || \"novel\".\"characters\".\"attributes_jsonb\"::text, 16384))","params":[]}]}
+    ],
+    "primaryKeys": [],
+    "foreignKeys": [
+      {"name":"characters_workspace_id_workspaces_id_fk","columns":["workspace_id"],"foreignSchema":"app","foreignTable":"workspaces","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"characters_novel_id_novels_id_fk","columns":["novel_id"],"foreignSchema":"novel","foreignTable":"novels","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"characters_created_by_user_id_users_id_fk","columns":["created_by_user_id"],"foreignSchema":"auth","foreignTable":"users","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"characters_workspace_novel_fkey","columns":["workspace_id","novel_id"],"foreignSchema":"novel","foreignTable":"novels","foreignColumns":["workspace_id","id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"characters_workspace_generation_run_fkey","columns":["workspace_id","novel_id","source_generation_run_id"],"foreignSchema":"ai","foreignTable":"generation_runs","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"}
+    ],
+    "uniqueConstraints": [
+      {"name":"characters_workspace_id_id_key","columns":["workspace_id","id"],"nullsNotDistinct":false},
+      {"name":"characters_workspace_novel_id_id_key","columns":["workspace_id","novel_id","id"],"nullsNotDistinct":false}
+    ],
+    "checks": [
+      {"name":"characters_status_check","value":{"sql":"\"novel\".\"characters\".\"status\" IN ('draft', 'published', 'archived', 'deleted')","params":[]}}
+    ],
+    "enableRLS": false,
+    "policies": []
+  },
+  "emailVerificationTokens": {
+    "schema": "auth",
+    "name": "email_verification_tokens",
+    "columns": [
+      {"name":"id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":true,"hasDefault":true,"default":{"sql":"gen_random_uuid()","params":[]},"isUnique":false},
+      {"name":"user_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"token_hash","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":true,"uniqueName":"email_verification_tokens_token_hash_unique"},
+      {"name":"expires_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"consumed_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false}
+    ],
+    "indexes": [],
+    "primaryKeys": [],
+    "foreignKeys": [
+      {"name":"email_verification_tokens_user_id_users_id_fk","columns":["user_id"],"foreignSchema":"auth","foreignTable":"users","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"}
+    ],
+    "uniqueConstraints": [],
+    "checks": [],
+    "enableRLS": false,
+    "policies": []
+  },
+  "entityRelationVersions": {
+    "schema": "novel",
+    "name": "entity_relation_versions",
+    "columns": [
+      {"name":"id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":true,"hasDefault":true,"default":{"sql":"gen_random_uuid()","params":[]},"isUnique":false},
+      {"name":"workspace_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"novel_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"relation_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"version_no","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"status","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":true,"default":"draft","isUnique":false},
+      {"name":"content_jsonb","sqlType":"jsonb","dataType":"json","columnType":"PgJsonb","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_type","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_by_user_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_generation_run_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_idempotency_key","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false}
+    ],
+    "indexes": [
+      {"name":"entity_relation_versions_workspace_entity_no_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"relation_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"version_no","keyAsName":false,"type":"PgInteger","indexConfig":{"order":"asc","nulls":"last"}}]},
+      {"name":"entity_relation_versions_workspace_idempotency_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_idempotency_key","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}]}
+    ],
+    "primaryKeys": [],
+    "foreignKeys": [
+      {"name":"entity_relation_versions_workspace_id_workspaces_id_fk","columns":["workspace_id"],"foreignSchema":"app","foreignTable":"workspaces","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"entity_relation_versions_created_by_user_id_users_id_fk","columns":["created_by_user_id"],"foreignSchema":"auth","foreignTable":"users","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"entity_relation_versions_workspace_novel_relation_fkey","columns":["workspace_id","novel_id","relation_id"],"foreignSchema":"novel","foreignTable":"entity_relations","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"entity_relation_versions_run_fkey","columns":["workspace_id","novel_id","source_generation_run_id"],"foreignSchema":"ai","foreignTable":"generation_runs","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"}
+    ],
+    "uniqueConstraints": [],
+    "checks": [
+      {"name":"entity_relation_versions_status_check","value":{"sql":"\"novel\".\"entity_relation_versions\".\"status\" IN ('draft', 'published', 'archived', 'deleted')","params":[]}}
+    ],
+    "enableRLS": false,
+    "policies": []
+  },
+  "entityRelations": {
+    "schema": "novel",
+    "name": "entity_relations",
+    "columns": [
+      {"name":"id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":true,"hasDefault":true,"default":{"sql":"gen_random_uuid()","params":[]},"isUnique":false},
+      {"name":"workspace_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"novel_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_entity_type","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_entity_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"target_entity_type","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"target_entity_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"relation_type","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"status","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":true,"default":"draft","isUnique":false},
+      {"name":"strength","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"attributes_jsonb","sqlType":"jsonb","dataType":"json","columnType":"PgJsonb","notNull":true,"primary":false,"hasDefault":true,"default":{},"isUnique":false},
+      {"name":"attributes_schema_version","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":true,"default":1,"isUnique":false},
+      {"name":"current_version_no","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":true,"default":1,"isUnique":false},
+      {"name":"source_version_no","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"valid_from","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"valid_to","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_by_user_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_generation_run_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_idempotency_key","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false},
+      {"name":"updated_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false},
+      {"name":"deleted_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":false,"primary":false,"hasDefault":false,"isUnique":false}
+    ],
+    "indexes": [
+      {"name":"entity_relations_source_idx","unique":false,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_entity_type","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_entity_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}}]},
+      {"name":"entity_relations_target_idx","unique":false,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"target_entity_type","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}},{"name":"target_entity_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}}]},
+      {"name":"novel_entity_relations_context_search_idx","unique":false,"only":true,"method":"gin","columns":[{"sql":"to_tsvector('simple', left(\"novel\".\"entity_relations\".\"source_entity_type\" || ':' || \"novel\".\"entity_relations\".\"source_entity_id\"::text || ' ' || \"novel\".\"entity_relations\".\"relation_type\" || ' ' || \"novel\".\"entity_relations\".\"target_entity_type\" || ':' || \"novel\".\"entity_relations\".\"target_entity_id\"::text || E'\\n' || \"novel\".\"entity_relations\".\"attributes_jsonb\"::text, 16384))","params":[]}]},
+      {"name":"entity_relations_workspace_idempotency_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_idempotency_key","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}]}
+    ],
+    "primaryKeys": [],
+    "foreignKeys": [
+      {"name":"entity_relations_workspace_id_workspaces_id_fk","columns":["workspace_id"],"foreignSchema":"app","foreignTable":"workspaces","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"entity_relations_created_by_user_id_users_id_fk","columns":["created_by_user_id"],"foreignSchema":"auth","foreignTable":"users","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"entity_relations_workspace_novel_fkey","columns":["workspace_id","novel_id"],"foreignSchema":"novel","foreignTable":"novels","foreignColumns":["workspace_id","id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"entity_relations_run_fkey","columns":["workspace_id","novel_id","source_generation_run_id"],"foreignSchema":"ai","foreignTable":"generation_runs","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"}
+    ],
+    "uniqueConstraints": [
+      {"name":"entity_relations_workspace_id_id_key","columns":["workspace_id","id"],"nullsNotDistinct":false},
+      {"name":"entity_relations_workspace_novel_id_id_key","columns":["workspace_id","novel_id","id"],"nullsNotDistinct":false}
+    ],
+    "checks": [
+      {"name":"entity_relations_status_check","value":{"sql":"\"novel\".\"entity_relations\".\"status\" IN ('draft', 'published', 'archived', 'deleted')","params":[]}}
+    ],
+    "enableRLS": false,
+    "policies": []
+  },
+  "factionVersions": {
+    "schema": "novel",
+    "name": "faction_versions",
+    "columns": [
+      {"name":"id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":true,"hasDefault":true,"default":{"sql":"gen_random_uuid()","params":[]},"isUnique":false},
+      {"name":"workspace_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"novel_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"faction_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"version_no","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"status","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":true,"default":"draft","isUnique":false},
+      {"name":"content_jsonb","sqlType":"jsonb","dataType":"json","columnType":"PgJsonb","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_type","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_by_user_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_generation_run_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_idempotency_key","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false}
+    ],
+    "indexes": [
+      {"name":"faction_versions_workspace_entity_no_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"faction_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"version_no","keyAsName":false,"type":"PgInteger","indexConfig":{"order":"asc","nulls":"last"}}]},
+      {"name":"faction_versions_workspace_idempotency_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_idempotency_key","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}]}
+    ],
+    "primaryKeys": [],
+    "foreignKeys": [
+      {"name":"faction_versions_workspace_id_workspaces_id_fk","columns":["workspace_id"],"foreignSchema":"app","foreignTable":"workspaces","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"faction_versions_created_by_user_id_users_id_fk","columns":["created_by_user_id"],"foreignSchema":"auth","foreignTable":"users","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"faction_versions_workspace_novel_faction_fkey","columns":["workspace_id","novel_id","faction_id"],"foreignSchema":"novel","foreignTable":"factions","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"faction_versions_workspace_novel_run_fkey","columns":["workspace_id","novel_id","source_generation_run_id"],"foreignSchema":"ai","foreignTable":"generation_runs","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"}
+    ],
+    "uniqueConstraints": [],
+    "checks": [
+      {"name":"faction_versions_status_check","value":{"sql":"\"novel\".\"faction_versions\".\"status\" IN ('draft', 'published', 'archived', 'deleted')","params":[]}}
+    ],
+    "enableRLS": false,
+    "policies": []
+  },
+  "factions": {
+    "schema": "novel",
+    "name": "factions",
+    "columns": [
+      {"name":"id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":true,"hasDefault":true,"default":{"sql":"gen_random_uuid()","params":[]},"isUnique":false},
+      {"name":"workspace_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"novel_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"name","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"summary","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"status","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":true,"default":"draft","isUnique":false},
+      {"name":"attributes_jsonb","sqlType":"jsonb","dataType":"json","columnType":"PgJsonb","notNull":true,"primary":false,"hasDefault":true,"default":{},"isUnique":false},
+      {"name":"attributes_schema_version","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":true,"default":1,"isUnique":false},
+      {"name":"current_version_no","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":true,"default":1,"isUnique":false},
+      {"name":"created_by_user_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_generation_run_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_idempotency_key","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false},
+      {"name":"updated_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false},
+      {"name":"deleted_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":false,"primary":false,"hasDefault":false,"isUnique":false}
+    ],
+    "indexes": [
+      {"name":"novel_factions_workspace_novel_idx","unique":false,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"novel_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"status","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}]},
+      {"name":"novel_factions_context_search_idx","unique":false,"only":true,"method":"gin","columns":[{"sql":"to_tsvector('simple', left(\"novel\".\"factions\".\"name\" || E'\\n' || coalesce(\"novel\".\"factions\".\"summary\", '') || E'\\n' || \"novel\".\"factions\".\"attributes_jsonb\"::text, 16384))","params":[]}]},
+      {"name":"factions_workspace_idempotency_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_idempotency_key","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}]}
+    ],
+    "primaryKeys": [],
+    "foreignKeys": [
+      {"name":"factions_workspace_id_workspaces_id_fk","columns":["workspace_id"],"foreignSchema":"app","foreignTable":"workspaces","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"factions_novel_id_novels_id_fk","columns":["novel_id"],"foreignSchema":"novel","foreignTable":"novels","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"factions_created_by_user_id_users_id_fk","columns":["created_by_user_id"],"foreignSchema":"auth","foreignTable":"users","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"factions_workspace_novel_fkey","columns":["workspace_id","novel_id"],"foreignSchema":"novel","foreignTable":"novels","foreignColumns":["workspace_id","id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"factions_workspace_novel_run_fkey","columns":["workspace_id","novel_id","source_generation_run_id"],"foreignSchema":"ai","foreignTable":"generation_runs","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"}
+    ],
+    "uniqueConstraints": [
+      {"name":"factions_workspace_id_id_key","columns":["workspace_id","id"],"nullsNotDistinct":false},
+      {"name":"factions_workspace_novel_id_id_key","columns":["workspace_id","novel_id","id"],"nullsNotDistinct":false}
+    ],
+    "checks": [
+      {"name":"factions_status_check","value":{"sql":"\"novel\".\"factions\".\"status\" IN ('draft', 'published', 'archived', 'deleted')","params":[]}}
+    ],
+    "enableRLS": false,
+    "policies": []
+  },
+  "generationContextItems": {
+    "schema": "ai",
+    "name": "generation_context_items",
+    "columns": [
+      {"name":"id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":true,"hasDefault":true,"default":{"sql":"gen_random_uuid()","params":[]},"isUnique":false},
+      {"name":"workspace_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"novel_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"generation_run_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_type","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"rank","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"excerpt_hash","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"excerpt","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_status","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"requires_rerun","sqlType":"boolean","dataType":"boolean","columnType":"PgBoolean","notNull":true,"primary":false,"hasDefault":true,"default":false,"isUnique":false},
+      {"name":"token_count","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"selection_reason","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false}
+    ],
+    "indexes": [
+      {"name":"generation_context_items_run_rank_idx","unique":false,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"novel_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"generation_run_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"rank","keyAsName":false,"type":"PgInteger","indexConfig":{"order":"asc","nulls":"last"}}]}
+    ],
+    "primaryKeys": [],
+    "foreignKeys": [
+      {"name":"generation_context_items_workspace_id_workspaces_id_fk","columns":["workspace_id"],"foreignSchema":"app","foreignTable":"workspaces","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"generation_context_items_generation_run_fkey","columns":["workspace_id","novel_id","generation_run_id"],"foreignSchema":"ai","foreignTable":"generation_runs","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"}
+    ],
+    "uniqueConstraints": [
+      {"name":"generation_context_items_workspace_id_id_key","columns":["workspace_id","id"],"nullsNotDistinct":false},
+      {"name":"generation_context_items_unique_source","columns":["generation_run_id","source_type","source_id"],"nullsNotDistinct":false}
+    ],
+    "checks": [
+      {"name":"generation_context_items_rank_check","value":{"sql":"\"ai\".\"generation_context_items\".\"rank\" >= 0","params":[]}},
+      {"name":"generation_context_items_token_count_check","value":{"sql":"\"ai\".\"generation_context_items\".\"token_count\" >= 0","params":[]}}
+    ],
+    "enableRLS": false,
+    "policies": []
+  },
+  "generationProposals": {
+    "schema": "ai",
+    "name": "generation_proposals",
+    "columns": [
+      {"name":"id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":true,"hasDefault":true,"default":{"sql":"gen_random_uuid()","params":[]},"isUnique":false},
+      {"name":"generation_run_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"workspace_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"novel_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"target_type","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"target_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"operation","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"base_version_no","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"proposed_content","sqlType":"jsonb","dataType":"json","columnType":"PgJsonb","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"validation_result","sqlType":"jsonb","dataType":"json","columnType":"PgJsonb","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"conflict_result","sqlType":"jsonb","dataType":"json","columnType":"PgJsonb","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"status","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"reviewed_by_user_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"reviewed_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"published_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"idempotency_key","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false}
+    ],
+    "indexes": [
+      {"name":"generation_proposals_workspace_idempotency_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"idempotency_key","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}]},
+      {"name":"generation_proposals_workspace_status_idx","unique":false,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"status","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}]}
+    ],
+    "primaryKeys": [],
+    "foreignKeys": [
+      {"name":"generation_proposals_workspace_id_workspaces_id_fk","columns":["workspace_id"],"foreignSchema":"app","foreignTable":"workspaces","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"generation_proposals_reviewed_by_user_id_users_id_fk","columns":["reviewed_by_user_id"],"foreignSchema":"auth","foreignTable":"users","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"generation_proposals_workspace_novel_run_fkey","columns":["workspace_id","novel_id","generation_run_id"],"foreignSchema":"ai","foreignTable":"generation_runs","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"generation_proposals_workspace_novel_fkey","columns":["workspace_id","novel_id"],"foreignSchema":"novel","foreignTable":"novels","foreignColumns":["workspace_id","id"],"onUpdate":"no action","onDelete":"no action"}
+    ],
+    "uniqueConstraints": [
+      {"name":"generation_proposals_workspace_id_id_key","columns":["workspace_id","id"],"nullsNotDistinct":false}
+    ],
+    "checks": [
+      {"name":"generation_proposals_status_check","value":{"sql":"\"ai\".\"generation_proposals\".\"status\" IN ('draft', 'approved', 'rejected', 'published', 'expired')","params":[]}},
+      {"name":"generation_proposals_target_type_check","value":{"sql":"\"ai\".\"generation_proposals\".\"target_type\" IN ('outlines', 'characters', 'skills', 'locations', 'factions', 'items', 'storylines', 'entity_relations', 'character_skills', 'chapters', 'chapter_versions', 'chapter_summaries', 'story_facts', 'timeline_events')","params":[]}},
+      {"name":"generation_proposals_operation_check","value":{"sql":"\"ai\".\"generation_proposals\".\"operation\" IN ('create', 'update', 'link')","params":[]}},
+      {"name":"generation_proposals_character_skill_operation_check","value":{"sql":"\"ai\".\"generation_proposals\".\"target_type\" <> 'character_skills' OR \"ai\".\"generation_proposals\".\"operation\" IN ('link', 'update')","params":[]}},
+      {"name":"generation_proposals_target_check","value":{"sql":"(\"ai\".\"generation_proposals\".\"target_id\" IS NOT NULL AND ((\"ai\".\"generation_proposals\".\"operation\" IN ('create', 'link') AND \"ai\".\"generation_proposals\".\"base_version_no\" IS NULL) OR (\"ai\".\"generation_proposals\".\"operation\" = 'update' AND \"ai\".\"generation_proposals\".\"base_version_no\" > 0))) OR (\"ai\".\"generation_proposals\".\"status\" = 'draft' AND \"ai\".\"generation_proposals\".\"operation\" = 'create' AND \"ai\".\"generation_proposals\".\"target_id\" IS NULL AND \"ai\".\"generation_proposals\".\"base_version_no\" IS NULL)","params":[]}}
+    ],
+    "enableRLS": false,
+    "policies": []
+  },
+  "generationResults": {
+    "schema": "ai",
+    "name": "generation_results",
+    "columns": [
+      {"name":"id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":true,"hasDefault":true,"default":{"sql":"gen_random_uuid()","params":[]},"isUnique":false},
+      {"name":"workspace_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"novel_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"generation_run_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"idempotency_key","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"selected_context","sqlType":"jsonb","dataType":"json","columnType":"PgJsonb","notNull":true,"primary":false,"hasDefault":true,"default":[],"isUnique":false},
+      {"name":"records","sqlType":"jsonb","dataType":"json","columnType":"PgJsonb","notNull":true,"primary":false,"hasDefault":true,"default":[],"isUnique":false},
+      {"name":"proposals","sqlType":"jsonb","dataType":"json","columnType":"PgJsonb","notNull":true,"primary":false,"hasDefault":true,"default":[],"isUnique":false},
+      {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false}
+    ],
+    "indexes": [
+      {"name":"generation_results_workspace_novel_idempotency_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"novel_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"idempotency_key","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}]}
+    ],
+    "primaryKeys": [],
+    "foreignKeys": [
+      {"name":"generation_results_workspace_id_workspaces_id_fk","columns":["workspace_id"],"foreignSchema":"app","foreignTable":"workspaces","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"generation_results_workspace_novel_fkey","columns":["workspace_id","novel_id"],"foreignSchema":"novel","foreignTable":"novels","foreignColumns":["workspace_id","id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"generation_results_workspace_novel_run_fkey","columns":["workspace_id","novel_id","generation_run_id"],"foreignSchema":"ai","foreignTable":"generation_runs","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"}
+    ],
+    "uniqueConstraints": [
+      {"name":"generation_results_workspace_id_id_key","columns":["workspace_id","id"],"nullsNotDistinct":false}
+    ],
+    "checks": [],
+    "enableRLS": false,
+    "policies": []
+  },
+  "generationRuns": {
+    "schema": "ai",
+    "name": "generation_runs",
+    "columns": [
+      {"name":"id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":true,"hasDefault":true,"default":{"sql":"gen_random_uuid()","params":[]},"isUnique":false},
+      {"name":"workspace_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"novel_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"initiated_by_user_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"agent_principal_id","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"model","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"prompt_version","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_session_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"instruction","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":true,"default":"","isUnique":false},
+      {"name":"context_limit","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":true,"default":8,"isUnique":false},
+      {"name":"heartbeat_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"error_summary","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"idempotency_key","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"status","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"started_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false},
+      {"name":"completed_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"error_code","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false}
+    ],
+    "indexes": [
+      {"name":"generation_runs_workspace_idx","unique":false,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"started_at","keyAsName":false,"type":"PgTimestamp","indexConfig":{"order":"asc","nulls":"last"}}]},
+      {"name":"generation_runs_workspace_idempotency_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"idempotency_key","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}]}
+    ],
+    "primaryKeys": [],
+    "foreignKeys": [
+      {"name":"generation_runs_workspace_id_workspaces_id_fk","columns":["workspace_id"],"foreignSchema":"app","foreignTable":"workspaces","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"generation_runs_initiated_by_user_id_users_id_fk","columns":["initiated_by_user_id"],"foreignSchema":"auth","foreignTable":"users","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"generation_runs_workspace_novel_fkey","columns":["workspace_id","novel_id"],"foreignSchema":"novel","foreignTable":"novels","foreignColumns":["workspace_id","id"],"onUpdate":"no action","onDelete":"no action"}
+    ],
+    "uniqueConstraints": [
+      {"name":"generation_runs_workspace_id_id_key","columns":["workspace_id","id"],"nullsNotDistinct":false},
+      {"name":"generation_runs_workspace_novel_id_id_key","columns":["workspace_id","novel_id","id"],"nullsNotDistinct":false}
+    ],
+    "checks": [
+      {"name":"generation_runs_idempotency_key_check","value":{"sql":"length(btrim(\"ai\".\"generation_runs\".\"idempotency_key\")) > 0","params":[]}},
+      {"name":"generation_runs_status_check","value":{"sql":"\"ai\".\"generation_runs\".\"status\" IN ('queued', 'running', 'completed', 'failed', 'cancelled')","params":[]}},
+      {"name":"generation_runs_completed_at_check","value":{"sql":"(\"ai\".\"generation_runs\".\"status\" IN ('completed', 'failed', 'cancelled')) = (\"ai\".\"generation_runs\".\"completed_at\" IS NOT NULL)","params":[]}},
+      {"name":"generation_runs_error_code_length_check","value":{"sql":"\"ai\".\"generation_runs\".\"error_code\" IS NULL OR \"ai\".\"generation_runs\".\"error_code\" ~ '^[A-Z][A-Z0-9_]{0,127}$'","params":[]}},
+      {"name":"generation_runs_error_summary_length_check","value":{"sql":"\"ai\".\"generation_runs\".\"error_summary\" IS NULL OR length(\"ai\".\"generation_runs\".\"error_summary\") <= 512","params":[]}},
+      {"name":"generation_runs_instruction_length_check","value":{"sql":"length(\"ai\".\"generation_runs\".\"instruction\") <= 100000","params":[]}},
+      {"name":"generation_runs_context_limit_check","value":{"sql":"\"ai\".\"generation_runs\".\"context_limit\" >= 0 AND \"ai\".\"generation_runs\".\"context_limit\" <= 128","params":[]}}
+    ],
+    "enableRLS": false,
+    "policies": []
+  },
+  "itemVersions": {
+    "schema": "novel",
+    "name": "item_versions",
+    "columns": [
+      {"name":"id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":true,"hasDefault":true,"default":{"sql":"gen_random_uuid()","params":[]},"isUnique":false},
+      {"name":"workspace_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"novel_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"item_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"version_no","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"status","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":true,"default":"draft","isUnique":false},
+      {"name":"content_jsonb","sqlType":"jsonb","dataType":"json","columnType":"PgJsonb","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_type","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_by_user_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_generation_run_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_idempotency_key","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false}
+    ],
+    "indexes": [
+      {"name":"item_versions_workspace_entity_no_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"item_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"version_no","keyAsName":false,"type":"PgInteger","indexConfig":{"order":"asc","nulls":"last"}}]},
+      {"name":"item_versions_workspace_idempotency_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_idempotency_key","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}]}
+    ],
+    "primaryKeys": [],
+    "foreignKeys": [
+      {"name":"item_versions_workspace_id_workspaces_id_fk","columns":["workspace_id"],"foreignSchema":"app","foreignTable":"workspaces","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"item_versions_created_by_user_id_users_id_fk","columns":["created_by_user_id"],"foreignSchema":"auth","foreignTable":"users","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"item_versions_workspace_novel_item_fkey","columns":["workspace_id","novel_id","item_id"],"foreignSchema":"novel","foreignTable":"items","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"item_versions_workspace_novel_run_fkey","columns":["workspace_id","novel_id","source_generation_run_id"],"foreignSchema":"ai","foreignTable":"generation_runs","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"}
+    ],
+    "uniqueConstraints": [],
+    "checks": [
+      {"name":"item_versions_status_check","value":{"sql":"\"novel\".\"item_versions\".\"status\" IN ('draft', 'published', 'archived', 'deleted')","params":[]}}
+    ],
+    "enableRLS": false,
+    "policies": []
+  },
+  "items": {
+    "schema": "novel",
+    "name": "items",
+    "columns": [
+      {"name":"id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":true,"hasDefault":true,"default":{"sql":"gen_random_uuid()","params":[]},"isUnique":false},
+      {"name":"workspace_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"novel_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"name","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"summary","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"status","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":true,"default":"draft","isUnique":false},
+      {"name":"attributes_jsonb","sqlType":"jsonb","dataType":"json","columnType":"PgJsonb","notNull":true,"primary":false,"hasDefault":true,"default":{},"isUnique":false},
+      {"name":"attributes_schema_version","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":true,"default":1,"isUnique":false},
+      {"name":"current_version_no","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":true,"default":1,"isUnique":false},
+      {"name":"created_by_user_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_generation_run_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_idempotency_key","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false},
+      {"name":"updated_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false},
+      {"name":"deleted_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":false,"primary":false,"hasDefault":false,"isUnique":false}
+    ],
+    "indexes": [
+      {"name":"novel_items_workspace_novel_idx","unique":false,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"novel_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"status","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}]},
+      {"name":"novel_items_context_search_idx","unique":false,"only":true,"method":"gin","columns":[{"sql":"to_tsvector('simple', left(\"novel\".\"items\".\"name\" || E'\\n' || coalesce(\"novel\".\"items\".\"summary\", '') || E'\\n' || \"novel\".\"items\".\"attributes_jsonb\"::text, 16384))","params":[]}]},
+      {"name":"items_workspace_idempotency_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_idempotency_key","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}]}
+    ],
+    "primaryKeys": [],
+    "foreignKeys": [
+      {"name":"items_workspace_id_workspaces_id_fk","columns":["workspace_id"],"foreignSchema":"app","foreignTable":"workspaces","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"items_novel_id_novels_id_fk","columns":["novel_id"],"foreignSchema":"novel","foreignTable":"novels","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"items_created_by_user_id_users_id_fk","columns":["created_by_user_id"],"foreignSchema":"auth","foreignTable":"users","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"items_workspace_novel_fkey","columns":["workspace_id","novel_id"],"foreignSchema":"novel","foreignTable":"novels","foreignColumns":["workspace_id","id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"items_workspace_novel_run_fkey","columns":["workspace_id","novel_id","source_generation_run_id"],"foreignSchema":"ai","foreignTable":"generation_runs","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"}
+    ],
+    "uniqueConstraints": [
+      {"name":"items_workspace_id_id_key","columns":["workspace_id","id"],"nullsNotDistinct":false},
+      {"name":"items_workspace_novel_id_id_key","columns":["workspace_id","novel_id","id"],"nullsNotDistinct":false}
+    ],
+    "checks": [
+      {"name":"items_status_check","value":{"sql":"\"novel\".\"items\".\"status\" IN ('draft', 'published', 'archived', 'deleted')","params":[]}}
+    ],
+    "enableRLS": false,
+    "policies": []
+  },
+  "locationVersions": {
+    "schema": "novel",
+    "name": "location_versions",
+    "columns": [
+      {"name":"id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":true,"hasDefault":true,"default":{"sql":"gen_random_uuid()","params":[]},"isUnique":false},
+      {"name":"workspace_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"novel_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"location_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"version_no","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"status","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":true,"default":"draft","isUnique":false},
+      {"name":"content_jsonb","sqlType":"jsonb","dataType":"json","columnType":"PgJsonb","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_type","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_by_user_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_generation_run_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_idempotency_key","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false}
+    ],
+    "indexes": [
+      {"name":"location_versions_workspace_entity_no_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"location_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"version_no","keyAsName":false,"type":"PgInteger","indexConfig":{"order":"asc","nulls":"last"}}]},
+      {"name":"location_versions_workspace_idempotency_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_idempotency_key","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}]}
+    ],
+    "primaryKeys": [],
+    "foreignKeys": [
+      {"name":"location_versions_workspace_id_workspaces_id_fk","columns":["workspace_id"],"foreignSchema":"app","foreignTable":"workspaces","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"location_versions_created_by_user_id_users_id_fk","columns":["created_by_user_id"],"foreignSchema":"auth","foreignTable":"users","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"location_versions_workspace_novel_location_fkey","columns":["workspace_id","novel_id","location_id"],"foreignSchema":"novel","foreignTable":"locations","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"location_versions_workspace_novel_run_fkey","columns":["workspace_id","novel_id","source_generation_run_id"],"foreignSchema":"ai","foreignTable":"generation_runs","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"}
+    ],
+    "uniqueConstraints": [],
+    "checks": [
+      {"name":"location_versions_status_check","value":{"sql":"\"novel\".\"location_versions\".\"status\" IN ('draft', 'published', 'archived', 'deleted')","params":[]}}
+    ],
+    "enableRLS": false,
+    "policies": []
+  },
+  "locations": {
+    "schema": "novel",
+    "name": "locations",
+    "columns": [
+      {"name":"id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":true,"hasDefault":true,"default":{"sql":"gen_random_uuid()","params":[]},"isUnique":false},
+      {"name":"workspace_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"novel_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"name","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"summary","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"status","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":true,"default":"draft","isUnique":false},
+      {"name":"attributes_jsonb","sqlType":"jsonb","dataType":"json","columnType":"PgJsonb","notNull":true,"primary":false,"hasDefault":true,"default":{},"isUnique":false},
+      {"name":"attributes_schema_version","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":true,"default":1,"isUnique":false},
+      {"name":"current_version_no","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":true,"default":1,"isUnique":false},
+      {"name":"created_by_user_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_generation_run_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_idempotency_key","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false},
+      {"name":"updated_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false},
+      {"name":"deleted_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":false,"primary":false,"hasDefault":false,"isUnique":false}
+    ],
+    "indexes": [
+      {"name":"novel_locations_workspace_novel_idx","unique":false,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"novel_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"status","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}]},
+      {"name":"novel_locations_context_search_idx","unique":false,"only":true,"method":"gin","columns":[{"sql":"to_tsvector('simple', left(\"novel\".\"locations\".\"name\" || E'\\n' || coalesce(\"novel\".\"locations\".\"summary\", '') || E'\\n' || \"novel\".\"locations\".\"attributes_jsonb\"::text, 16384))","params":[]}]},
+      {"name":"locations_workspace_idempotency_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_idempotency_key","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}]}
+    ],
+    "primaryKeys": [],
+    "foreignKeys": [
+      {"name":"locations_workspace_id_workspaces_id_fk","columns":["workspace_id"],"foreignSchema":"app","foreignTable":"workspaces","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"locations_novel_id_novels_id_fk","columns":["novel_id"],"foreignSchema":"novel","foreignTable":"novels","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"locations_created_by_user_id_users_id_fk","columns":["created_by_user_id"],"foreignSchema":"auth","foreignTable":"users","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"locations_workspace_novel_fkey","columns":["workspace_id","novel_id"],"foreignSchema":"novel","foreignTable":"novels","foreignColumns":["workspace_id","id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"locations_workspace_novel_run_fkey","columns":["workspace_id","novel_id","source_generation_run_id"],"foreignSchema":"ai","foreignTable":"generation_runs","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"}
+    ],
+    "uniqueConstraints": [
+      {"name":"locations_workspace_id_id_key","columns":["workspace_id","id"],"nullsNotDistinct":false},
+      {"name":"locations_workspace_novel_id_id_key","columns":["workspace_id","novel_id","id"],"nullsNotDistinct":false}
+    ],
+    "checks": [
+      {"name":"locations_status_check","value":{"sql":"\"novel\".\"locations\".\"status\" IN ('draft', 'published', 'archived', 'deleted')","params":[]}}
+    ],
+    "enableRLS": false,
+    "policies": []
+  },
+  "novels": {
+    "schema": "novel",
+    "name": "novels",
+    "columns": [
+      {"name":"id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":true,"hasDefault":true,"default":{"sql":"gen_random_uuid()","params":[]},"isUnique":false},
+      {"name":"workspace_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"title","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"status","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"attributes_jsonb","sqlType":"jsonb","dataType":"json","columnType":"PgJsonb","notNull":true,"primary":false,"hasDefault":true,"default":{},"isUnique":false},
+      {"name":"attributes_schema_version","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":true,"default":1,"isUnique":false},
+      {"name":"created_by_user_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false},
+      {"name":"updated_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false},
+      {"name":"deleted_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":false,"primary":false,"hasDefault":false,"isUnique":false}
+    ],
+    "indexes": [],
+    "primaryKeys": [],
+    "foreignKeys": [
+      {"name":"novels_workspace_id_workspaces_id_fk","columns":["workspace_id"],"foreignSchema":"app","foreignTable":"workspaces","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"novels_created_by_user_id_users_id_fk","columns":["created_by_user_id"],"foreignSchema":"auth","foreignTable":"users","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"}
+    ],
+    "uniqueConstraints": [
+      {"name":"novels_workspace_id_id_key","columns":["workspace_id","id"],"nullsNotDistinct":false}
+    ],
+    "checks": [],
+    "enableRLS": false,
+    "policies": []
+  },
+  "outlines": {
+    "schema": "novel",
+    "name": "outlines",
+    "columns": [
+      {"name":"id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":true,"hasDefault":true,"default":{"sql":"gen_random_uuid()","params":[]},"isUnique":false},
+      {"name":"workspace_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"novel_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"title","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"content_jsonb","sqlType":"jsonb","dataType":"json","columnType":"PgJsonb","notNull":true,"primary":false,"hasDefault":true,"default":{},"isUnique":false},
+      {"name":"status","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":true,"default":"draft","isUnique":false},
+      {"name":"current_version_no","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":true,"default":1,"isUnique":false},
+      {"name":"created_by_user_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_generation_run_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_idempotency_key","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false},
+      {"name":"updated_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false},
+      {"name":"deleted_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":false,"primary":false,"hasDefault":false,"isUnique":false}
+    ],
+    "indexes": [
+      {"name":"outlines_workspace_idempotency_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_idempotency_key","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}],"where":{"sql":"\"novel\".\"outlines\".\"source_idempotency_key\" IS NOT NULL","params":[]}},
+      {"name":"novel_outlines_context_search_idx","unique":false,"only":true,"method":"gin","columns":[{"sql":"to_tsvector('simple', left(\"novel\".\"outlines\".\"title\" || E'\\n' || \"novel\".\"outlines\".\"content_jsonb\"::text, 16384))","params":[]}]}
+    ],
+    "primaryKeys": [],
+    "foreignKeys": [
+      {"name":"outlines_workspace_id_workspaces_id_fk","columns":["workspace_id"],"foreignSchema":"app","foreignTable":"workspaces","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"outlines_created_by_user_id_users_id_fk","columns":["created_by_user_id"],"foreignSchema":"auth","foreignTable":"users","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"outlines_workspace_novel_fkey","columns":["workspace_id","novel_id"],"foreignSchema":"novel","foreignTable":"novels","foreignColumns":["workspace_id","id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"outlines_generation_run_fkey","columns":["workspace_id","novel_id","source_generation_run_id"],"foreignSchema":"ai","foreignTable":"generation_runs","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"}
+    ],
+    "uniqueConstraints": [
+      {"name":"outlines_workspace_id_id_key","columns":["workspace_id","id"],"nullsNotDistinct":false}
+    ],
+    "checks": [
+      {"name":"outlines_status_check","value":{"sql":"\"novel\".\"outlines\".\"status\" IN ('draft', 'published', 'archived', 'deleted')","params":[]}},
+      {"name":"outlines_version_check","value":{"sql":"\"novel\".\"outlines\".\"current_version_no\" > 0","params":[]}}
+    ],
+    "enableRLS": false,
+    "policies": []
+  },
+  "passwordResetTokens": {
+    "schema": "auth",
+    "name": "password_reset_tokens",
+    "columns": [
+      {"name":"id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":true,"hasDefault":true,"default":{"sql":"gen_random_uuid()","params":[]},"isUnique":false},
+      {"name":"user_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"token_hash","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":true,"uniqueName":"password_reset_tokens_token_hash_unique"},
+      {"name":"expires_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"consumed_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false}
+    ],
+    "indexes": [],
+    "primaryKeys": [],
+    "foreignKeys": [
+      {"name":"password_reset_tokens_user_id_users_id_fk","columns":["user_id"],"foreignSchema":"auth","foreignTable":"users","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"}
+    ],
+    "uniqueConstraints": [],
+    "checks": [],
+    "enableRLS": false,
+    "policies": []
+  },
+  "refreshTokens": {
+    "schema": "auth",
+    "name": "refresh_tokens",
+    "columns": [
+      {"name":"id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":true,"hasDefault":true,"default":{"sql":"gen_random_uuid()","params":[]},"isUnique":false},
+      {"name":"user_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"session_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"family_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"token_hash","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":true,"uniqueName":"refresh_tokens_token_hash_unique"},
+      {"name":"expires_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"used_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"revoked_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"replaced_by","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false}
+    ],
+    "indexes": [
+      {"name":"refresh_tokens_family_idx","unique":false,"only":false,"method":"btree","columns":[{"name":"family_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}}]},
+      {"name":"refresh_tokens_user_idx","unique":false,"only":false,"method":"btree","columns":[{"name":"user_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}}]}
+    ],
+    "primaryKeys": [],
+    "foreignKeys": [
+      {"name":"refresh_tokens_user_id_users_id_fk","columns":["user_id"],"foreignSchema":"auth","foreignTable":"users","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"refresh_tokens_session_id_sessions_id_fk","columns":["session_id"],"foreignSchema":"auth","foreignTable":"sessions","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"}
+    ],
+    "uniqueConstraints": [],
+    "checks": [],
+    "enableRLS": false,
+    "policies": []
+  },
+  "sessions": {
+    "schema": "auth",
+    "name": "sessions",
+    "columns": [
+      {"name":"id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":true,"hasDefault":true,"default":{"sql":"gen_random_uuid()","params":[]},"isUnique":false},
+      {"name":"user_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"token_hash","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":true,"uniqueName":"sessions_token_hash_unique"},
+      {"name":"client_type","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"user_agent","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"ip_hash","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"expires_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"last_seen_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"revoked_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false}
+    ],
+    "indexes": [
+      {"name":"sessions_user_expiry_idx","unique":false,"only":false,"method":"btree","columns":[{"name":"user_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"expires_at","keyAsName":false,"type":"PgTimestamp","indexConfig":{"order":"asc","nulls":"last"}}]}
+    ],
+    "primaryKeys": [],
+    "foreignKeys": [
+      {"name":"sessions_user_id_users_id_fk","columns":["user_id"],"foreignSchema":"auth","foreignTable":"users","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"}
+    ],
+    "uniqueConstraints": [],
+    "checks": [],
+    "enableRLS": false,
+    "policies": []
+  },
+  "skillVersions": {
+    "schema": "novel",
+    "name": "skill_versions",
+    "columns": [
+      {"name":"id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":true,"hasDefault":true,"default":{"sql":"gen_random_uuid()","params":[]},"isUnique":false},
+      {"name":"workspace_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"novel_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"skill_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"version_no","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"status","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":true,"default":"draft","isUnique":false},
+      {"name":"content_jsonb","sqlType":"jsonb","dataType":"json","columnType":"PgJsonb","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_type","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_by_user_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_generation_run_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_idempotency_key","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false}
+    ],
+    "indexes": [
+      {"name":"skill_versions_skill_no_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"skill_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"version_no","keyAsName":false,"type":"PgInteger","indexConfig":{"order":"asc","nulls":"last"}}]},
+      {"name":"skill_versions_workspace_idempotency_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_idempotency_key","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}]},
+      {"name":"skill_versions_workspace_idx","unique":false,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}}]}
+    ],
+    "primaryKeys": [],
+    "foreignKeys": [
+      {"name":"skill_versions_workspace_id_workspaces_id_fk","columns":["workspace_id"],"foreignSchema":"app","foreignTable":"workspaces","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"skill_versions_created_by_user_id_users_id_fk","columns":["created_by_user_id"],"foreignSchema":"auth","foreignTable":"users","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"skill_versions_workspace_novel_skill_fkey","columns":["workspace_id","novel_id","skill_id"],"foreignSchema":"novel","foreignTable":"skills","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"skill_versions_workspace_novel_run_fkey","columns":["workspace_id","novel_id","source_generation_run_id"],"foreignSchema":"ai","foreignTable":"generation_runs","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"}
+    ],
+    "uniqueConstraints": [],
+    "checks": [
+      {"name":"skill_versions_status_check","value":{"sql":"\"novel\".\"skill_versions\".\"status\" IN ('draft', 'published', 'archived', 'deleted')","params":[]}}
+    ],
+    "enableRLS": false,
+    "policies": []
+  },
+  "skills": {
+    "schema": "novel",
+    "name": "skills",
+    "columns": [
+      {"name":"id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":true,"hasDefault":true,"default":{"sql":"gen_random_uuid()","params":[]},"isUnique":false},
+      {"name":"workspace_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"novel_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"name","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"summary","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"status","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":true,"default":"draft","isUnique":false},
+      {"name":"attributes_jsonb","sqlType":"jsonb","dataType":"json","columnType":"PgJsonb","notNull":true,"primary":false,"hasDefault":true,"default":{},"isUnique":false},
+      {"name":"attributes_schema_version","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":true,"default":1,"isUnique":false},
+      {"name":"current_version_no","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":true,"default":1,"isUnique":false},
+      {"name":"created_by_user_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_generation_run_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_idempotency_key","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false},
+      {"name":"updated_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false},
+      {"name":"deleted_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":false,"primary":false,"hasDefault":false,"isUnique":false}
+    ],
+    "indexes": [
+      {"name":"skills_workspace_idempotency_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_idempotency_key","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}]},
+      {"name":"novel_skills_context_search_idx","unique":false,"only":true,"method":"gin","columns":[{"sql":"to_tsvector('simple', left(\"novel\".\"skills\".\"name\" || E'\\n' || coalesce(\"novel\".\"skills\".\"summary\", '') || E'\\n' || \"novel\".\"skills\".\"attributes_jsonb\"::text, 16384))","params":[]}]}
+    ],
+    "primaryKeys": [],
+    "foreignKeys": [
+      {"name":"skills_workspace_id_workspaces_id_fk","columns":["workspace_id"],"foreignSchema":"app","foreignTable":"workspaces","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"skills_novel_id_novels_id_fk","columns":["novel_id"],"foreignSchema":"novel","foreignTable":"novels","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"skills_created_by_user_id_users_id_fk","columns":["created_by_user_id"],"foreignSchema":"auth","foreignTable":"users","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"skills_workspace_novel_fkey","columns":["workspace_id","novel_id"],"foreignSchema":"novel","foreignTable":"novels","foreignColumns":["workspace_id","id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"skills_workspace_generation_run_fkey","columns":["workspace_id","novel_id","source_generation_run_id"],"foreignSchema":"ai","foreignTable":"generation_runs","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"}
+    ],
+    "uniqueConstraints": [
+      {"name":"skills_workspace_id_id_key","columns":["workspace_id","id"],"nullsNotDistinct":false},
+      {"name":"skills_workspace_novel_id_id_key","columns":["workspace_id","novel_id","id"],"nullsNotDistinct":false}
+    ],
+    "checks": [
+      {"name":"skills_status_check","value":{"sql":"\"novel\".\"skills\".\"status\" IN ('draft', 'published', 'archived', 'deleted')","params":[]}}
+    ],
+    "enableRLS": false,
+    "policies": []
+  },
+  "storyFacts": {
+    "schema": "novel",
+    "name": "story_facts",
+    "columns": [
+      {"name":"id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":true,"hasDefault":true,"default":{"sql":"gen_random_uuid()","params":[]},"isUnique":false},
+      {"name":"workspace_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"novel_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"fact_key","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"statement","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"status","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":true,"default":"draft","isUnique":false},
+      {"name":"attributes_jsonb","sqlType":"jsonb","dataType":"json","columnType":"PgJsonb","notNull":true,"primary":false,"hasDefault":true,"default":{},"isUnique":false},
+      {"name":"attributes_schema_version","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":true,"default":1,"isUnique":false},
+      {"name":"current_version_no","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":true,"default":1,"isUnique":false},
+      {"name":"source_chapter_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_chapter_version_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_by_user_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_generation_run_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_idempotency_key","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false},
+      {"name":"updated_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false},
+      {"name":"deleted_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":false,"primary":false,"hasDefault":false,"isUnique":false}
+    ],
+    "indexes": [
+      {"name":"story_facts_workspace_idempotency_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_idempotency_key","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}],"where":{"sql":"\"novel\".\"story_facts\".\"source_idempotency_key\" IS NOT NULL","params":[]}},
+      {"name":"novel_story_facts_context_search_idx","unique":false,"only":true,"method":"gin","columns":[{"sql":"to_tsvector('simple', left(\"novel\".\"story_facts\".\"fact_key\" || E'\\n' || \"novel\".\"story_facts\".\"statement\" || E'\\n' || \"novel\".\"story_facts\".\"attributes_jsonb\"::text, 16384))","params":[]}]},
+      {"name":"story_facts_workspace_key_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"novel_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"fact_key","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}],"where":{"sql":"\"novel\".\"story_facts\".\"deleted_at\" IS NULL","params":[]}}
+    ],
+    "primaryKeys": [],
+    "foreignKeys": [
+      {"name":"story_facts_workspace_id_workspaces_id_fk","columns":["workspace_id"],"foreignSchema":"app","foreignTable":"workspaces","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"story_facts_created_by_user_id_users_id_fk","columns":["created_by_user_id"],"foreignSchema":"auth","foreignTable":"users","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"story_facts_workspace_novel_fkey","columns":["workspace_id","novel_id"],"foreignSchema":"novel","foreignTable":"novels","foreignColumns":["workspace_id","id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"story_facts_chapter_fkey","columns":["workspace_id","novel_id","source_chapter_id"],"foreignSchema":"novel","foreignTable":"chapters","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"story_facts_chapter_version_fkey","columns":["workspace_id","source_chapter_version_id"],"foreignSchema":"novel","foreignTable":"chapter_versions","foreignColumns":["workspace_id","id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"story_facts_generation_run_fkey","columns":["workspace_id","novel_id","source_generation_run_id"],"foreignSchema":"ai","foreignTable":"generation_runs","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"}
+    ],
+    "uniqueConstraints": [
+      {"name":"story_facts_workspace_id_id_key","columns":["workspace_id","id"],"nullsNotDistinct":false}
+    ],
+    "checks": [
+      {"name":"story_facts_status_check","value":{"sql":"\"novel\".\"story_facts\".\"status\" IN ('draft', 'published', 'archived', 'deleted')","params":[]}},
+      {"name":"story_facts_version_check","value":{"sql":"\"novel\".\"story_facts\".\"current_version_no\" > 0","params":[]}},
+      {"name":"story_facts_schema_version_check","value":{"sql":"\"novel\".\"story_facts\".\"attributes_schema_version\" > 0","params":[]}}
+    ],
+    "enableRLS": false,
+    "policies": []
+  },
+  "storylineVersions": {
+    "schema": "novel",
+    "name": "storyline_versions",
+    "columns": [
+      {"name":"id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":true,"hasDefault":true,"default":{"sql":"gen_random_uuid()","params":[]},"isUnique":false},
+      {"name":"workspace_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"novel_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"storyline_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"version_no","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"status","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":true,"default":"draft","isUnique":false},
+      {"name":"content_jsonb","sqlType":"jsonb","dataType":"json","columnType":"PgJsonb","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_type","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_by_user_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_generation_run_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_idempotency_key","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false}
+    ],
+    "indexes": [
+      {"name":"storyline_versions_workspace_entity_no_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"storyline_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"version_no","keyAsName":false,"type":"PgInteger","indexConfig":{"order":"asc","nulls":"last"}}]},
+      {"name":"storyline_versions_workspace_idempotency_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_idempotency_key","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}]}
+    ],
+    "primaryKeys": [],
+    "foreignKeys": [
+      {"name":"storyline_versions_workspace_id_workspaces_id_fk","columns":["workspace_id"],"foreignSchema":"app","foreignTable":"workspaces","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"storyline_versions_created_by_user_id_users_id_fk","columns":["created_by_user_id"],"foreignSchema":"auth","foreignTable":"users","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"storyline_versions_workspace_novel_storyline_fkey","columns":["workspace_id","novel_id","storyline_id"],"foreignSchema":"novel","foreignTable":"storylines","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"storyline_versions_workspace_novel_run_fkey","columns":["workspace_id","novel_id","source_generation_run_id"],"foreignSchema":"ai","foreignTable":"generation_runs","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"}
+    ],
+    "uniqueConstraints": [],
+    "checks": [
+      {"name":"storyline_versions_status_check","value":{"sql":"\"novel\".\"storyline_versions\".\"status\" IN ('draft', 'published', 'archived', 'deleted')","params":[]}}
+    ],
+    "enableRLS": false,
+    "policies": []
+  },
+  "storylines": {
+    "schema": "novel",
+    "name": "storylines",
+    "columns": [
+      {"name":"id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":true,"hasDefault":true,"default":{"sql":"gen_random_uuid()","params":[]},"isUnique":false},
+      {"name":"workspace_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"novel_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"name","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"summary","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"status","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":true,"default":"draft","isUnique":false},
+      {"name":"attributes_jsonb","sqlType":"jsonb","dataType":"json","columnType":"PgJsonb","notNull":true,"primary":false,"hasDefault":true,"default":{},"isUnique":false},
+      {"name":"attributes_schema_version","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":true,"default":1,"isUnique":false},
+      {"name":"current_version_no","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":true,"default":1,"isUnique":false},
+      {"name":"created_by_user_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_generation_run_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_idempotency_key","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false},
+      {"name":"updated_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false},
+      {"name":"deleted_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":false,"primary":false,"hasDefault":false,"isUnique":false}
+    ],
+    "indexes": [
+      {"name":"novel_storylines_workspace_novel_idx","unique":false,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"novel_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"status","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}]},
+      {"name":"novel_storylines_context_search_idx","unique":false,"only":true,"method":"gin","columns":[{"sql":"to_tsvector('simple', left(\"novel\".\"storylines\".\"name\" || E'\\n' || coalesce(\"novel\".\"storylines\".\"summary\", '') || E'\\n' || \"novel\".\"storylines\".\"attributes_jsonb\"::text, 16384))","params":[]}]},
+      {"name":"storylines_workspace_idempotency_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_idempotency_key","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}]}
+    ],
+    "primaryKeys": [],
+    "foreignKeys": [
+      {"name":"storylines_workspace_id_workspaces_id_fk","columns":["workspace_id"],"foreignSchema":"app","foreignTable":"workspaces","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"storylines_novel_id_novels_id_fk","columns":["novel_id"],"foreignSchema":"novel","foreignTable":"novels","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"storylines_created_by_user_id_users_id_fk","columns":["created_by_user_id"],"foreignSchema":"auth","foreignTable":"users","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"storylines_workspace_novel_fkey","columns":["workspace_id","novel_id"],"foreignSchema":"novel","foreignTable":"novels","foreignColumns":["workspace_id","id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"storylines_workspace_novel_run_fkey","columns":["workspace_id","novel_id","source_generation_run_id"],"foreignSchema":"ai","foreignTable":"generation_runs","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"}
+    ],
+    "uniqueConstraints": [
+      {"name":"storylines_workspace_id_id_key","columns":["workspace_id","id"],"nullsNotDistinct":false},
+      {"name":"storylines_workspace_novel_id_id_key","columns":["workspace_id","novel_id","id"],"nullsNotDistinct":false}
+    ],
+    "checks": [
+      {"name":"storylines_status_check","value":{"sql":"\"novel\".\"storylines\".\"status\" IN ('draft', 'published', 'archived', 'deleted')","params":[]}}
+    ],
+    "enableRLS": false,
+    "policies": []
+  },
+  "timelineEvents": {
+    "schema": "novel",
+    "name": "timeline_events",
+    "columns": [
+      {"name":"id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":true,"hasDefault":true,"default":{"sql":"gen_random_uuid()","params":[]},"isUnique":false},
+      {"name":"workspace_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"novel_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"event_key","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"title","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"description","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"sequence_no","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"status","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":true,"default":"draft","isUnique":false},
+      {"name":"attributes_jsonb","sqlType":"jsonb","dataType":"json","columnType":"PgJsonb","notNull":true,"primary":false,"hasDefault":true,"default":{},"isUnique":false},
+      {"name":"attributes_schema_version","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":true,"default":1,"isUnique":false},
+      {"name":"current_version_no","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":true,"default":1,"isUnique":false},
+      {"name":"source_chapter_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_chapter_version_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_by_user_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_generation_run_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"source_idempotency_key","sqlType":"text","dataType":"string","columnType":"PgText","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false},
+      {"name":"updated_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false},
+      {"name":"deleted_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":false,"primary":false,"hasDefault":false,"isUnique":false}
+    ],
+    "indexes": [
+      {"name":"timeline_events_workspace_idempotency_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_idempotency_key","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}],"where":{"sql":"\"novel\".\"timeline_events\".\"source_idempotency_key\" IS NOT NULL","params":[]}},
+      {"name":"novel_timeline_events_context_search_idx","unique":false,"only":true,"method":"gin","columns":[{"sql":"to_tsvector('simple', left(\"novel\".\"timeline_events\".\"title\" || E'\\n' || coalesce(\"novel\".\"timeline_events\".\"description\", '') || E'\\n' || \"novel\".\"timeline_events\".\"attributes_jsonb\"::text, 16384))","params":[]}]},
+      {"name":"timeline_events_workspace_key_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"novel_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"event_key","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}],"where":{"sql":"\"novel\".\"timeline_events\".\"deleted_at\" IS NULL","params":[]}},
+      {"name":"timeline_events_workspace_novel_sequence_idx","unique":false,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"novel_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"sequence_no","keyAsName":false,"type":"PgInteger","indexConfig":{"order":"asc","nulls":"last"}},{"name":"updated_at","keyAsName":false,"type":"PgTimestamp","indexConfig":{"order":"desc","nulls":"last"}}]}
+    ],
+    "primaryKeys": [],
+    "foreignKeys": [
+      {"name":"timeline_events_workspace_id_workspaces_id_fk","columns":["workspace_id"],"foreignSchema":"app","foreignTable":"workspaces","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"timeline_events_created_by_user_id_users_id_fk","columns":["created_by_user_id"],"foreignSchema":"auth","foreignTable":"users","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"timeline_events_workspace_novel_fkey","columns":["workspace_id","novel_id"],"foreignSchema":"novel","foreignTable":"novels","foreignColumns":["workspace_id","id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"timeline_events_chapter_fkey","columns":["workspace_id","novel_id","source_chapter_id"],"foreignSchema":"novel","foreignTable":"chapters","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"timeline_events_chapter_version_fkey","columns":["workspace_id","source_chapter_version_id"],"foreignSchema":"novel","foreignTable":"chapter_versions","foreignColumns":["workspace_id","id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"timeline_events_generation_run_fkey","columns":["workspace_id","novel_id","source_generation_run_id"],"foreignSchema":"ai","foreignTable":"generation_runs","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"}
+    ],
+    "uniqueConstraints": [
+      {"name":"timeline_events_workspace_id_id_key","columns":["workspace_id","id"],"nullsNotDistinct":false}
+    ],
+    "checks": [
+      {"name":"timeline_events_status_check","value":{"sql":"\"novel\".\"timeline_events\".\"status\" IN ('draft', 'published', 'archived', 'deleted')","params":[]}},
+      {"name":"timeline_events_version_check","value":{"sql":"\"novel\".\"timeline_events\".\"current_version_no\" > 0","params":[]}},
+      {"name":"timeline_events_schema_version_check","value":{"sql":"\"novel\".\"timeline_events\".\"attributes_schema_version\" > 0","params":[]}}
+    ],
+    "enableRLS": false,
+    "policies": []
+  },
+  "users": {
+    "schema": "auth",
+    "name": "users",
+    "columns": [
+      {"name":"id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":true,"hasDefault":true,"default":{"sql":"gen_random_uuid()","params":[]},"isUnique":false},
+      {"name":"email","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"email_normalized","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":true,"uniqueName":"users_email_normalized_unique"},
+      {"name":"password_hash","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"status","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"email_verified_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"failed_login_count","sqlType":"integer","dataType":"number","columnType":"PgInteger","notNull":true,"primary":false,"hasDefault":true,"default":0,"isUnique":false},
+      {"name":"locked_until","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"password_changed_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"last_login_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":false,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false},
+      {"name":"updated_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false},
+      {"name":"deleted_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":false,"primary":false,"hasDefault":false,"isUnique":false}
+    ],
+    "indexes": [],
+    "primaryKeys": [],
+    "foreignKeys": [],
+    "uniqueConstraints": [],
+    "checks": [],
+    "enableRLS": false,
+    "policies": []
+  },
+  "workspaceMembers": {
+    "schema": "app",
+    "name": "workspace_members",
+    "columns": [
+      {"name":"workspace_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"user_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"role","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false},
+      {"name":"revoked_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":false,"primary":false,"hasDefault":false,"isUnique":false}
+    ],
+    "indexes": [
+      {"name":"workspace_members_user_idx","unique":false,"only":false,"method":"btree","columns":[{"name":"user_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}}]}
+    ],
+    "primaryKeys": [
+      {"name":"workspace_members_workspace_id_user_id_pk","columns":["workspace_id","user_id"]}
+    ],
+    "foreignKeys": [
+      {"name":"workspace_members_workspace_id_workspaces_id_fk","columns":["workspace_id"],"foreignSchema":"app","foreignTable":"workspaces","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"},
+      {"name":"workspace_members_user_id_users_id_fk","columns":["user_id"],"foreignSchema":"auth","foreignTable":"users","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"}
+    ],
+    "uniqueConstraints": [],
+    "checks": [],
+    "enableRLS": false,
+    "policies": []
+  },
+  "workspaces": {
+    "schema": "app",
+    "name": "workspaces",
+    "columns": [
+      {"name":"id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":true,"hasDefault":true,"default":{"sql":"gen_random_uuid()","params":[]},"isUnique":false},
+      {"name":"owner_user_id","sqlType":"uuid","dataType":"string","columnType":"PgUUID","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"name","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"status","sqlType":"text","dataType":"string","columnType":"PgText","notNull":true,"primary":false,"hasDefault":false,"isUnique":false},
+      {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false},
+      {"name":"updated_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false},
+      {"name":"deleted_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":false,"primary":false,"hasDefault":false,"isUnique":false}
+    ],
+    "indexes": [
+      {"name":"workspaces_owner_idx","unique":false,"only":false,"method":"btree","columns":[{"name":"owner_user_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}}]}
+    ],
+    "primaryKeys": [],
+    "foreignKeys": [
+      {"name":"workspaces_owner_user_id_users_id_fk","columns":["owner_user_id"],"foreignSchema":"auth","foreignTable":"users","foreignColumns":["id"],"onUpdate":"no action","onDelete":"no action"}
+    ],
+    "uniqueConstraints": [],
+    "checks": [],
+    "enableRLS": false,
+    "policies": []
+  }
+}

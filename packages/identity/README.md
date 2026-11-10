@@ -1,5 +1,5 @@
 ---
-description: "The identity package group: anonymous, per-harness-home correlation ids shared by telemetry, feedback, and DeepSeek provider requests."
+description: "Anonymous installation correlation and server-side multi-user authentication."
 kind: "package-group"
 ---
 
@@ -28,6 +28,7 @@ The identity group provides anonymous installation correlation and multi-user au
 <a id="related-documentation"></a>
 ## Related documentation
 
+- [Authentication subsystem](../../docs/subsystems/identity-auth.md) — the group's refresh-token persistence types and atomic rotation semantics.
 - [Session telemetry subsystem](../../docs/subsystems/session-telemetry.md) — the telemetry feature that carries the id on exports.
 - [dsh-llm-deepseek](../llm/llm-deepseek/README.md) — the DeepSeek provider that carries the id on requests.
 - [dsh-command-feedback](../feedback/command-feedback/README.md) — the feedback command that names the anonymous installation in its acknowledgement.

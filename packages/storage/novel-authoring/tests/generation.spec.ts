@@ -7,6 +7,7 @@ import {
   type PersistedGenerationContextItem,
   type PersistedContextCandidateRepository,
   type GenerationResultRepository,
+  type GenerationResultLookup,
   type NovelGenerationAdapter,
 } from '../src/index.ts'
 
@@ -86,6 +87,53 @@ const dependencies = (context: MemoryContext, results: MemoryResults, calls: { c
 })
 
 describe('LongformGenerationService', () => {
+  it.each(['synchronous', 'asynchronous'] as const)('retries the same key after a %s durable-lock failure while retaining the repository receiver', async (failureMode) => {
+    class LockedResults extends MemoryResults {
+      attempts = 0
+
+      withIdempotencyLock<T>(_input: GenerationResultLookup, callback: () => Promise<T>): Promise<T> {
+        this.attempts += 1
+        if (this.attempts === 1) {
+          const failure = new Error('lock unavailable')
+          if (failureMode === 'synchronous') throw failure
+          return Promise.reject(failure)
+        }
+        return callback()
+      }
+    }
+    const results = new LockedResults()
+    const calls = { count: 0 }
+    const service = new LongformGenerationService(dependencies(new MemoryContext(), results, calls))
+    const input = { workspaceId: 'w1', novelId: 'n1', generationRunId: 'lock-run', instruction: 'write', limit: 0, idempotencyKey: `retry-${failureMode}` }
+    await expect(service.generate(input)).rejects.toThrow('lock unavailable')
+    await expect(service.generate(input)).resolves.toMatchObject({ generationRunId: 'lock-run' })
+    expect(results.attempts).toBe(2)
+    expect(calls.count).toBe(1)
+  })
+
+  it('shares instance-backed durable-lock work across service instances', async () => {
+    class LockedResults extends MemoryResults {
+      locks = 0
+
+      async withIdempotencyLock<T>(_input: GenerationResultLookup, callback: () => Promise<T>): Promise<T> {
+        this.locks += 1
+        await Promise.resolve()
+        return callback()
+      }
+    }
+    const results = new LockedResults()
+    const calls = { count: 0 }
+    const deps = dependencies(new MemoryContext(), results, calls)
+    const input = { workspaceId: 'w1', novelId: 'n1', generationRunId: 'lock-shared-run', instruction: 'write', limit: 0, idempotencyKey: 'lock-shared' }
+    const [first, second] = await Promise.all([
+      new LongformGenerationService(deps).generate(input),
+      new LongformGenerationService(deps).generate(input),
+    ])
+    expect(second).toBe(first)
+    expect(results.locks).toBe(1)
+    expect(calls.count).toBe(1)
+  })
+
   it('continues from exact persisted context after a service restart', async () => {
     const context = new MemoryContext()
     context.candidates = [baseCandidate('summary-1')]

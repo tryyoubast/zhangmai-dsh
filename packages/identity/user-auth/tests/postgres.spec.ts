@@ -104,8 +104,9 @@ describe('PostgreSQL authentication stores', () => {
   })
 
   it('exposes refresh-token rotation and family revocation', () => {
-    for (const method of ['create', 'findByHash', 'rotate', 'revokeFamily']) {
+    for (const method of ['create', 'rotate', 'revokeFamily']) {
       expect(typeof (PostgresRefreshTokenStore.prototype as unknown as Record<string, unknown>)[method]).toBe('function')
     }
+    expect('findByHash' in PostgresRefreshTokenStore.prototype).toBe(false)
   })
 })

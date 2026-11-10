@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import test from 'node:test'
+import { spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
+
+import './pr-policy.test.mjs'
 
 import {
   auditIssue,
@@ -562,7 +566,7 @@ test('allows informational references without cross-object constraints', () => {
   assert.deepEqual(errors, [])
 })
 
-test('enforces highest resolving Priority without Type or area synchronization', () => {
+test('keeps PR Priority independent of optional resolving-Issue planning values', () => {
   const pull = {
     isDraft: false,
     authorType: 'User',
@@ -576,11 +580,7 @@ test('enforces highest resolving Priority without Type or area synchronization',
     ]),
   }
   assert.deepEqual(validatePullRequest(pull), [])
-  assert.ok(
-    validatePullRequest({ ...pull, labels: ['kind/cleanup', 'p2', 'area/web'] }).includes(
-      'PR Priority 应为 p0',
-    ),
-  )
+  assert.deepEqual(validatePullRequest({ ...pull, labels: ['kind/cleanup', 'p2', 'area/web'] }), [])
 })
 
 test('requires policy only after a human PR enters review', () => {
@@ -749,7 +749,7 @@ test('rejects multiple, unknown, legacy, and Issue-source PR labels', () => {
   )
 })
 
-test('allows missing Priority only when resolving Issues are also unprioritized', () => {
+test('allows absent or lowercase PR Priority without Issue references or Project metadata', () => {
   const pull = {
     isDraft: false,
     authorType: 'User',
@@ -760,14 +760,38 @@ test('allows missing Priority only when resolving Issues are also unprioritized'
     issues: new Map([[2, { priority: null }]]),
   }
   assert.deepEqual(validatePullRequest(pull), [])
-  assert.ok(
-    validatePullRequest({ ...pull, issues: new Map([[2, { priority: 'P2' }]]) }).includes(
-      'PR Priority 应为 p2',
-    ),
-  )
-  assert.ok(
-    validatePullRequest({ ...pull, labels: [...pull.labels, 'p2'] }).includes(
-      '有 Priority 的解决型 PR 要求每个被解决 Issue 都设置 Priority',
-    ),
-  )
+  assert.deepEqual(validatePullRequest({ ...pull, issues: new Map([[2, { priority: 'P2' }]]) }), [])
+  assert.deepEqual(validatePullRequest({ ...pull, labels: [...pull.labels, 'p2'] }), [])
+  assert.deepEqual(validatePullRequest({ ...reviewedPull(pull.labels), references: undefined, issues: undefined }), [])
+})
+
+test('rejects uppercase Priority aliases and multiple lowercase priorities', () => {
+  for (const priority of ['P0', 'P1', 'P2', 'P3']) {
+    assert.ok(validatePullRequest(reviewedPull(['kind/feature', 'area/web', priority])).length > 0)
+  }
+  assert.ok(validatePullRequest(reviewedPull(['kind/feature', 'area/web', 'p0', 'p1'])).length > 0)
+})
+
+test('makes Issue references optional in the pull request template', () => {
+  const source = readFileSync(new URL('../pull_request_template.md', import.meta.url), 'utf8')
+  assert.match(source, /可选/)
+  assert.doesNotMatch(source, /并以 Fixes/)
+})
+
+test('disables Project lifecycle without reading an event or requiring credentials', () => {
+  const result = spawnSync(process.execPath, [fileURLToPath(new URL('./policy.mjs', import.meta.url)), 'lifecycle'], {
+    encoding: 'utf8',
+    env: { ...process.env, DSH_ISSUE_PROJECT_ENABLED: '', GITHUB_EVENT_PATH: '', GH_TOKEN: '', GITHUB_TOKEN: '', PROJECT_TOKEN: '' },
+  })
+  assert.equal(result.status, 0, result.stderr)
+})
+
+test('rejects a Project configured for another repository before token access', () => {
+  const result = spawnSync(process.execPath, [fileURLToPath(new URL('./policy.mjs', import.meta.url)), 'validate-config'], {
+    encoding: 'utf8',
+    env: { ...process.env, GITHUB_REPOSITORY: 'contributor/fork', GH_TOKEN: '', GITHUB_TOKEN: '', PROJECT_TOKEN: '' },
+  })
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /configured for deepseek-harness\/deepseek-harness.*contributor\/fork/)
+  assert.doesNotMatch(result.stderr, /TOKEN|token/)
 })

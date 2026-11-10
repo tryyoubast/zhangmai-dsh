@@ -26,8 +26,8 @@ describe('user authentication primitives', () => {
   })
 
   it('enforces minimum password length and rejects common passwords', () => {
-    expect(() => validatePassword('short')).toThrow('at least 12')
-    expect(() => validatePassword('passwordpassword')).toThrow('too common')
+    expect(() => { validatePassword('short') }).toThrow('at least 12')
+    expect(() => { validatePassword('passwordpassword') }).toThrow('too common')
   })
 
   it('creates opaque tokens and only persists their one-way digest', () => {

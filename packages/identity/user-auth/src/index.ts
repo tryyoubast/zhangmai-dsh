@@ -1,3 +1,4 @@
+/** Authentication primitives and framework-neutral routes; persistence, mail, and rate limiting are injected. */
 import { createHash, randomBytes, randomUUID, sign, timingSafeEqual, verify } from 'node:crypto'
 import type { KeyObject } from 'node:crypto'
 
@@ -15,7 +16,7 @@ type Argon2Function = (
   callback: (error: Error | undefined, digest?: Uint8Array) => void,
 ) => void
 
-const argon2 = (process.getBuiltinModule?.('node:crypto') as { argon2?: Argon2Function } | undefined)?.argon2
+const argon2 = (process.getBuiltinModule('node:crypto') as { argon2?: Argon2Function } | undefined)?.argon2
 
 /** Roles granted by an active workspace membership. */
 export type WorkspaceRole = 'owner' | 'admin' | 'editor' | 'member'
@@ -34,7 +35,12 @@ export interface AuthPrincipal {
 /** Domain operations checked by workspace services before opening a write transaction. */
 export type WorkspaceAction = 'content:read' | 'draft:create' | 'content:write' | 'proposal:publish' | 'workspace:manage'
 
-/** Evaluate a capability using only the authenticated principal's server-resolved roles. */
+/**
+ * Evaluate workspace capabilities using server-resolved roles and actor type.
+ * @param principal - Authenticated actor and active workspace roles.
+ * @param action - Domain operation whose permission is required.
+ * @returns Whether the roles permit the action; publication additionally requires a human actor.
+ */
 export function canPerform(principal: AuthPrincipal, action: WorkspaceAction): boolean {
   const roles = new Set(principal.roles)
   if (action === 'content:read') return roles.size > 0
@@ -56,6 +62,9 @@ export const ARGON2ID_PARAMETERS = {
 
 /** Raised when the selected Node runtime cannot provide the required Argon2id primitive. */
 export class PasswordHashingUnavailableError extends Error {
+  /**
+   * Stable identifier for runtimes without the required Argon2id implementation.
+   */
   readonly code = 'PASSWORD_HASHING_UNAVAILABLE'
 
   constructor() {
@@ -66,6 +75,9 @@ export class PasswordHashingUnavailableError extends Error {
 
 /** Raised when a stored password encoding is malformed or uses unsupported parameters. */
 export class InvalidPasswordHashError extends Error {
+  /**
+   * Stable identifier for malformed or unsupported stored password hashes.
+   */
   readonly code = 'PASSWORD_HASH_INVALID'
 
   constructor() {
@@ -89,11 +101,12 @@ function encode(value: Uint8Array): string {
 }
 
 function decode(value: string): Buffer {
-  try {
-    return Buffer.from(value, 'base64url')
-  } catch {
-    throw new InvalidPasswordHashError()
-  }
+  return Buffer.from(value, 'base64url')
+}
+
+// The fixed PHC expression has five mandatory captures on every successful match.
+function hasPasswordHashParts(match: RegExpExecArray | null): match is RegExpExecArray & [string, string, string, string, string, string] {
+  return match !== null
 }
 
 function derive(password: string, salt: Uint8Array, options: PasswordHashOptions): Promise<Buffer> {
@@ -116,7 +129,13 @@ function derive(password: string, salt: Uint8Array, options: PasswordHashOptions
   })
 }
 
-/** Hash a password as an Argon2id PHC string. */
+/**
+ * Hash a policy-compliant password as an Argon2id PHC string with a fresh salt.
+ * @param password - Plaintext password satisfying validatePassword.
+ * @param options - Optional deployment-owned pepper; the same pepper is required for verification.
+ * @returns The encoded algorithm, parameters, salt, and derived password digest.
+ * @throws For a rejected password policy, unavailable Argon2id primitive, or hashing failure.
+ */
 export async function hashPassword(password: string, options: PasswordHashOptions = {}): Promise<string> {
   validatePassword(password)
   const salt = randomBytes(ARGON2ID_PARAMETERS.saltBytes)
@@ -124,13 +143,18 @@ export async function hashPassword(password: string, options: PasswordHashOption
   return `$argon2id$v=19$m=${String(ARGON2ID_PARAMETERS.memoryKiB)},t=${String(ARGON2ID_PARAMETERS.timeCost)},p=${String(ARGON2ID_PARAMETERS.parallelism)}$${encode(salt)}$${encode(digest)}`
 }
 
-/** Verify a password without revealing whether an account exists. */
+/**
+ * Compare a password against a stored Argon2id digest using constant-time digest comparison.
+ * @param password - Plaintext password to verify.
+ * @param encoded - Stored PHC string using the supported Argon2id parameters.
+ * @param options - Deployment-owned pepper used when the password was hashed.
+ * @returns Whether the derived digest matches the stored digest.
+ * @throws For malformed or unsupported hashes, unavailable Argon2id, or derivation failure.
+ */
 export async function verifyPassword(password: string, encoded: string, options: PasswordHashOptions = {}): Promise<boolean> {
   const match = /^\$argon2id\$v=19\$m=(\d+),t=(\d+),p=(\d+)\$([^$]+)\$([^$]+)$/u.exec(encoded)
-  if (match === null) throw new InvalidPasswordHashError()
+  if (!hasPasswordHashParts(match)) throw new InvalidPasswordHashError()
   const [, memory, time, parallelism, saltText, digestText] = match
-  if (memory === undefined || time === undefined || parallelism === undefined
-    || saltText === undefined || digestText === undefined) throw new InvalidPasswordHashError()
   if (Number(memory) !== ARGON2ID_PARAMETERS.memoryKiB
     || Number(time) !== ARGON2ID_PARAMETERS.timeCost
     || Number(parallelism) !== ARGON2ID_PARAMETERS.parallelism) {
@@ -145,26 +169,47 @@ export async function verifyPassword(password: string, encoded: string, options:
   return timingSafeEqual(actual, expected)
 }
 
-/** Normalize an email for uniqueness and login without altering the original display value. */
+/** Email and password input failures eligible for a sanitized HTTP 400 response. */
+class AuthInputValidationError extends Error {}
+
+/**
+ * Normalize an email for uniqueness and login while leaving display storage to the caller.
+ * @param email - Email value to trim, normalize with NFKC, and lowercase using en-US.
+ * @returns The normalized email address.
+ * @throws When the normalized value fails basic email syntax validation.
+ */
 export function normalizeEmail(email: string): string {
   const normalized = email.trim().normalize('NFKC').toLocaleLowerCase('en-US')
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(normalized)) throw new Error('Invalid email address')
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(normalized)) throw new AuthInputValidationError('Invalid email address')
   return normalized
 }
 
-/** Validate the minimum password policy without requiring arbitrary character classes. */
+/**
+ * Require at least twelve characters and reject the fixed common-password list.
+ * @param password - Plaintext password to check without changing it.
+ * @throws When the password is too short or matches a listed common password.
+ */
 export function validatePassword(password: string): void {
-  if (password.length < 12) throw new Error('Password must contain at least 12 characters')
+  if (password.length < 12) throw new AuthInputValidationError('Password must contain at least 12 characters')
   const weak = new Set(['passwordpassword', '123456789012', 'qwertyuiopas'])
-  if (weak.has(password.toLocaleLowerCase('en-US'))) throw new Error('Password is too common')
+  if (weak.has(password.toLocaleLowerCase('en-US'))) throw new AuthInputValidationError('Password is too common')
 }
 
-/** Hash opaque session or refresh material before persistence. */
+/**
+ * Hash opaque session or refresh material before persistence.
+ * @param token - Raw token material; callers must keep it out of logs and persisted records.
+ * @returns The lowercase hexadecimal SHA-256 digest.
+ */
 export function hashToken(token: string): string {
   return createHash('sha256').update(token, 'utf8').digest('hex')
 }
 
-/** Create high-entropy opaque token material for cookies and refresh tokens. */
+/**
+ * Create cryptographically random token material for cookies and refresh credentials.
+ * @param bytes - Random-byte count, defaulting to 32; must be an integer from 32 through 128.
+ * @returns A base64url-encoded token to expose only to its intended recipient.
+ * @throws When the byte count is unsupported or random generation fails.
+ */
 export function createOpaqueToken(bytes = 32): string {
   if (!Number.isSafeInteger(bytes) || bytes < 32 || bytes > 128) throw new Error('Token size must be between 32 and 128 bytes')
   return randomBytes(bytes).toString('base64url')
@@ -225,7 +270,11 @@ export interface LoginResult {
   readonly clientType: 'browser' | 'official-client'
 }
 
-/** Service-level registration and login operations with enumeration-safe failures. */
+/**
+ * Register accounts and manage password-based authentication through injected persistence.
+ * Validation, hashing, and store failures reject. Optional combined store operations provide atomic registration and password updates;
+ * fallback operations execute separately, and reset tokens are consumed before password hashing and writes.
+ */
 export class UserAuthService {
   constructor(
     private readonly store: AuthStore,
@@ -240,7 +289,13 @@ export class UserAuthService {
     } = {},
   ) {}
 
-  /** Create a pending account and a one-time token for the mail adapter. */
+  /**
+   * Create a pending account and a one-time verification token for the mail adapter.
+   * @param email - Address stored for display and normalized for account uniqueness.
+   * @param password - Plaintext password to validate and hash.
+   * @returns The new user ID and raw verification token, which the caller must neither persist nor log.
+   * @throws For invalid credentials, hashing failure, or store errors such as duplicate email registration.
+   */
   async register(email: string, password: string): Promise<RegistrationResult> {
     const emailNormalized = normalizeEmail(email)
     const passwordHash = await hashPassword(password, this.options.pepper === undefined ? {} : { pepper: this.options.pepper })
@@ -263,7 +318,13 @@ export class UserAuthService {
     return { userId, verificationToken: token }
   }
 
-  /** Authenticate a verified account; unknown, locked, and invalid credentials share the same null result. */
+  /**
+   * Authenticate a verified account and create a session, recording success or failed-password counters.
+   * @param email - Address normalized before account lookup.
+   * @param password - Plaintext password to compare with the stored digest.
+   * @param clientType - Browser-cookie or official-client session category.
+   * @returns Session credentials on success, or null for unknown, inactive, unverified, locked, or incorrect-password accounts.
+   */
   async login(email: string, password: string, clientType: 'browser' | 'official-client'): Promise<LoginResult | null> {
     const user = await this.store.findUserByEmail(normalizeEmail(email))
     const now = this.now()
@@ -294,13 +355,23 @@ export class UserAuthService {
     return { userId: user.id, sessionId: session.id, sessionToken, clientType }
   }
 
-  /** Consume an email token once and activate the associated pending account. */
+  /**
+   * Consume an unexpired email token once and activate its associated account.
+   * @param token - Raw verification token delivered by the mail adapter.
+   * @returns True when consumed and activated, or false when no usable token exists.
+   * @throws When the store lacks required lifecycle methods or the persistence operation fails.
+   */
   async verifyEmail(token: string): Promise<boolean> {
     const store = this.lifecycleStore()
     return store.consumeAndActivateEmailVerification(hashToken(token), this.now())
   }
 
-  /** Issue a one-time password reset token without revealing unknown accounts. */
+  /**
+   * Issue a one-time password reset token for an eligible account.
+   * @param email - Address normalized before account lookup.
+   * @returns A raw token for the mail adapter, or null for an unknown, deleted, or disabled account.
+   * @throws For invalid email syntax, unavailable lifecycle methods, or persistence failure.
+   */
   async issuePasswordReset(email: string): Promise<string | null> {
     const store = this.lifecycleStore()
     const user = await store.findUserByEmail(normalizeEmail(email))
@@ -314,7 +385,13 @@ export class UserAuthService {
     return token
   }
 
-  /** Replace a password exactly once and revoke every existing session. */
+  /**
+   * Consume a reset token, replace the password, and revoke sessions through the configured store.
+   * @param token - Raw one-time reset token; consumption precedes hashing and password writes.
+   * @param password - New plaintext password satisfying the password policy.
+   * @returns True after the password and revocation operations finish, or false when no usable token exists.
+   * @throws For invalid passwords or store and hashing failures; a consumed token is not restored on later failure.
+   */
   async resetPassword(token: string, password: string): Promise<boolean> {
     validatePassword(password)
     const store = this.lifecycleStore()
@@ -413,8 +490,9 @@ export interface AuthPrincipalResolutionRequest {
 }
 
 /**
- * Resolve a browser Session or official-client access token into one server-owned
- * principal. Invalid, expired, revoked, or mis-scoped credentials return null.
+ * Resolve a browser session or official-client JWT into a server-owned principal.
+ * @param request - Headers, trusted session and workspace resolvers, clock, and JWT verification settings.
+ * @returns A human principal, or null for invalid, expired, revoked, mis-scoped, or unresolved credentials and resolver failures.
  */
 export async function resolveAuthPrincipal(request: AuthPrincipalResolutionRequest): Promise<AuthPrincipal | null> {
   const now = request.now?.() ?? new Date()
@@ -431,7 +509,7 @@ export async function resolveAuthPrincipal(request: AuthPrincipalResolutionReque
       const session = request.sessionResolver.findSessionById === undefined
         ? null
         : await request.sessionResolver.findSessionById(claims.sid)
-      if (session === null || session === undefined || session.userId !== claims.sub
+      if (session === null || session.userId !== claims.sub
         || session.sessionId !== claims.sid || session.clientType !== 'official-client'
         || session.revokedAt !== null || session.expiresAt <= now) return null
       return principalFromIdentity(await request.resolveIdentity(claims.sub, claims.sid), 'official-client', claims.sid)
@@ -521,7 +599,12 @@ function bearerValue(header: string | undefined): string | null {
   return match?.[1] ?? null
 }
 
-/** Serialize the only cookie accepted by the browser authentication flow. */
+/**
+ * Serialize the Secure, HttpOnly, SameSite=Lax host-only browser session cookie.
+ * @param token - Opaque cookie token, or an empty string when clearing the cookie.
+ * @param maxAgeSeconds - Optional cookie lifetime in seconds; zero requests immediate expiration.
+ * @returns The Set-Cookie header value with Path=/ and no Domain attribute.
+ */
 export function serializeHostSessionCookie(token: string, maxAgeSeconds?: number): string {
   const age = maxAgeSeconds === undefined ? '' : `; Max-Age=${String(maxAgeSeconds)}`
   return `__Host-dsh_session=${token}; HttpOnly; Secure; SameSite=Lax; Path=/${age}`
@@ -541,7 +624,12 @@ export class AuthHttpController {
       : new RefreshTokenService(refreshTokens, this.options.now)
   }
 
-  /** Dispatch one authentication request and return a safe JSON response. */
+  /**
+   * Dispatch an authentication route after the configured state-changing origin check.
+   * @param request - Adapter-supplied method, path, headers, peer address, and optional JSON body.
+   * @returns The route response, including 403 for origin mismatch, 404 for unknown routes,
+   * and sanitized 400 or 500 responses for route failures.
+   */
   async handle(request: AuthHttpRequest): Promise<AuthHttpResponse> {
     if (this.isStateChanging(request) && this.options.allowedOrigin !== undefined
       && request.headers.origin !== this.options.allowedOrigin) {
@@ -549,18 +637,18 @@ export class AuthHttpController {
     }
     try {
       switch (`${request.method.toUpperCase()} ${request.path}`) {
-        case 'POST /api/auth/register': return this.register(request)
-        case 'POST /api/auth/verify-email': return this.verifyEmail(request)
-        case 'POST /api/auth/login': return this.login(request)
-        case 'POST /api/auth/logout': return this.logout(request)
-        case 'POST /api/auth/refresh': return this.refresh(request)
-        case 'POST /api/auth/forgot-password': return this.forgotPassword(request)
-        case 'POST /api/auth/reset-password': return this.resetPassword(request)
-        case 'GET /api/auth/me': return this.me(request)
+        case 'POST /api/auth/register': return await this.register(request)
+        case 'POST /api/auth/verify-email': return await this.verifyEmail(request)
+        case 'POST /api/auth/login': return await this.login(request)
+        case 'POST /api/auth/logout': return await this.logout(request)
+        case 'POST /api/auth/refresh': return await this.refresh(request)
+        case 'POST /api/auth/forgot-password': return await this.forgotPassword(request)
+        case 'POST /api/auth/reset-password': return await this.resetPassword(request)
+        case 'GET /api/auth/me': return await this.me(request)
         default: return jsonResponse(404, { error: 'not_found' })
       }
     } catch (error) {
-      if (error instanceof Error && /password|email address|origin/u.test(error.message)) {
+      if (error instanceof AuthInputValidationError) {
         return jsonResponse(400, { error: 'invalid_request' })
       }
       return jsonResponse(500, { error: 'authentication_unavailable' })
@@ -644,7 +732,7 @@ export class AuthHttpController {
     }
 
     const cookie = cookieValue(request.headers.cookie, '__Host-dsh_session')
-    if (cookie === null || resolver.findSessionByTokenHash === undefined) return null
+    if (cookie === null) return null
     const session = await resolver.findSessionByTokenHash(hashToken(cookie))
     if (session === null || session.clientType !== 'browser' || session.revokedAt !== null || session.expiresAt <= this.now()) {
       return null
@@ -655,11 +743,11 @@ export class AuthHttpController {
   private async refresh(request: AuthHttpRequest): Promise<AuthHttpResponse> {
     const token = stringField(requestBody(request), 'refreshToken') ?? bearerValue(request.headers.authorization)
     if (token === null) return jsonResponse(401, { error: 'invalid_refresh_token' })
-    const findSessionById = this.options.sessionResolver?.findSessionById
-    if (findSessionById === undefined) return jsonResponse(401, { error: 'invalid_refresh_token' })
+    const resolver = this.options.sessionResolver
+    if (resolver?.findSessionById === undefined) return jsonResponse(401, { error: 'invalid_refresh_token' })
     const rotated = await this.refreshTokens.rotate(token)
     if (rotated === null) return jsonResponse(401, { error: 'invalid_refresh_token' })
-    const session = await findSessionById(rotated.sessionId)
+    const session = await resolver.findSessionById(rotated.sessionId)
     if (session === null || session.userId !== rotated.userId || session.clientType !== 'official-client'
       || session.revokedAt !== null || session.expiresAt <= this.now()) {
       await this.refreshTokens.revokeFamily(rotated.familyId)
@@ -697,7 +785,7 @@ export class AuthHttpController {
     const session = await this.sessionFromRequest(request)
     if (session === null) return jsonResponse(401, { error: 'unauthorized' })
     const identity = await this.resolveIdentity(session.userId, session.sessionId)
-    return identity === null ? jsonResponse(401, { error: 'unauthorized' }) : jsonResponse(200, {
+    return jsonResponse(200, {
       userId: identity.userId,
       sessionId: session.sessionId,
       clientType: session.clientType,
@@ -743,27 +831,50 @@ export class AuthSecurityControls {
     private readonly now: () => Date = () => new Date(),
   ) {}
 
-  /** Apply a bounded login attempt budget. */
+  /**
+   * Consume the ten-attempt, one-minute login budget for a key.
+   * @param key - Caller-derived identity for grouping login attempts.
+   * @returns Whether the attempt is within budget; rate-limiter failures reject.
+   */
   consumeLoginAttempt(key: string): Promise<boolean> {
     return this.rateLimiter.consume(`auth:login:${key}`, 10, 60_000)
   }
 
-  /** Apply a bounded registration/reset request budget. */
+  /**
+   * Consume the five-request, one-hour registration or password-reset budget.
+   * @param kind - Operation whose rate-limit namespace is charged.
+   * @param key - Caller-derived identity for grouping requests.
+   * @returns Whether the request is within budget; rate-limiter failures reject.
+   */
   consumeRequestBudget(kind: 'register' | 'password-reset', key: string): Promise<boolean> {
     return this.rateLimiter.consume(`auth:${kind}:${key}`, 5, 60 * 60_000)
   }
 
-  /** Temporarily block a login key after repeated failures. */
+  /**
+   * Ask the rate limiter to temporarily block a login key.
+   * @param key - Caller-derived login identity, namespaced by this service.
+   * @param durationMs - Block lifetime in milliseconds, defaulting to fifteen minutes.
+   */
   blockLogin(key: string, durationMs = 15 * 60_000): Promise<void> {
     return this.rateLimiter.block(`auth:login:${key}`, durationMs)
   }
 
-  /** Send a verification message without exposing the token to logs. */
+  /**
+   * Pass a raw verification token only to the mail provider, with its delivery expiry.
+   * @param email - Destination address.
+   * @param token - Raw token that must not be logged by the provider.
+   * @param ttlMs - Lifetime from the injected clock, defaulting to twenty-four hours.
+   */
   sendVerification(email: string, token: string, ttlMs = 24 * 60 * 60_000): Promise<void> {
     return this.mail.sendEmailVerification({ email, token, expiresAt: new Date(this.now().getTime() + ttlMs) })
   }
 
-  /** Send a reset message without exposing the token to logs. */
+  /**
+   * Pass a raw reset token only to the mail provider, with its delivery expiry.
+   * @param email - Destination address.
+   * @param token - Raw token that must not be logged by the provider.
+   * @param ttlMs - Lifetime from the injected clock, defaulting to one hour.
+   */
   sendPasswordReset(email: string, token: string, ttlMs = 60 * 60_000): Promise<void> {
     return this.mail.sendPasswordReset({ email, token, expiresAt: new Date(this.now().getTime() + ttlMs) })
   }
@@ -834,11 +945,44 @@ export interface RefreshTokenRecord {
   readonly revokedAt: Date | null
 }
 
-/** Atomic persistence seam for refresh-token rotation and family revocation. */
+/** Replacement material generated before the store transaction; identity comes from the persisted token. */
+export interface RefreshTokenReplacement {
+  readonly id: string
+  readonly tokenHash: string
+  readonly expiresAt: Date
+}
+
+/** Committed rotation outcome; normal credential rejection does not throw. */
+export type RefreshTokenRotationResult =
+  | {
+    readonly status: 'rotated'
+    readonly id: string
+    readonly userId: string
+    readonly sessionId: string
+    readonly familyId: string
+  }
+  | { readonly status: 'invalid' }
+  | { readonly status: 'reused' }
+
+/** Persistence owns family serialization, locked state reads, and atomic replay revocation and audit. */
 export interface RefreshTokenStore {
+  /**
+   * Persist an initial token using the same user/family locks as rotation and revocation.
+   * @param record - Initial hashed token metadata for a newly generated family.
+   */
   create(record: RefreshTokenRecord): Promise<void>
-  findByHash(tokenHash: string): Promise<RefreshTokenRecord | null>
-  rotate(current: RefreshTokenRecord, replacement: RefreshTokenRecord): Promise<void>
+  /**
+   * Rotate or revoke a replayed token family in one transaction, including the replay audit.
+   * @param tokenHash - Digest identifying the presented refresh credential.
+   * @param replacement - New token ID, digest, and expiry; persisted identity is inherited by the store.
+   * @param now - Time for expiry checks, consumption, revocation, and audit.
+   * @returns The committed outcome; infrastructure failures reject and roll back all writes.
+   */
+  rotate(tokenHash: string, replacement: RefreshTokenReplacement, now: Date): Promise<RefreshTokenRotationResult>
+  /**
+   * Revoke active family records under the same locks used by rotation.
+   * @param familyId - Family to revoke; a missing family is unchanged.
+   */
   revokeFamily(familyId: string): Promise<void>
 }
 
@@ -850,7 +994,12 @@ export class RefreshTokenService {
     private readonly ttlMs = 30 * 24 * 60 * 60_000,
   ) {}
 
-  /** Issue the first token in a new family. */
+  /**
+   * Persist the first refresh-token hash in a new family.
+   * @param userId - Account owning the token.
+   * @param sessionId - Session associated with the family.
+   * @returns The raw token, family ID, and stored record ID; persistence failures reject.
+   */
   async issue(userId: string, sessionId: string): Promise<{ token: string; familyId: string; id: string }> {
     const token = createOpaqueToken(48)
     const id = randomUUID()
@@ -868,37 +1017,35 @@ export class RefreshTokenService {
     return { token, familyId, id }
   }
 
-  /** Rotate a valid token; a reused token revokes its entire family. */
+  /**
+   * Request atomic rotation; the store revokes the family and audits any detected replay.
+   * @param token - Raw refresh credential whose hash identifies the stored record.
+   * @returns The replacement credential and owner IDs, or null for unknown, revoked, expired, or already-used tokens.
+   * @throws When persistence or the replay audit fails; normal concurrent replay returns null.
+   */
   async rotate(token: string): Promise<{ token: string; familyId: string; id: string; userId: string; sessionId: string } | null> {
-    const current = await this.store.findByHash(hashToken(token))
     const now = this.now()
-    if (current === null || current.revokedAt !== null || current.expiresAt <= now) return null
-    if (current.usedAt !== null) {
-      await this.store.revokeFamily(current.familyId)
-      return null
-    }
     const replacementToken = createOpaqueToken(48)
     const replacement = {
       id: randomUUID(),
-      userId: current.userId,
-      sessionId: current.sessionId,
-      familyId: current.familyId,
       tokenHash: hashToken(replacementToken),
       expiresAt: new Date(now.getTime() + this.ttlMs),
-      usedAt: null,
-      revokedAt: null,
-    } satisfies RefreshTokenRecord
-    await this.store.rotate(current, replacement)
+    } satisfies RefreshTokenReplacement
+    const result = await this.store.rotate(hashToken(token), replacement, now)
+    if (result.status !== 'rotated') return null
     return {
       token: replacementToken,
-      familyId: replacement.familyId,
-      id: replacement.id,
-      userId: replacement.userId,
-      sessionId: replacement.sessionId,
+      familyId: result.familyId,
+      id: result.id,
+      userId: result.userId,
+      sessionId: result.sessionId,
     }
   }
 
-  /** Revoke a token family when its owning Session is no longer valid. */
+  /**
+   * Revoke a token family when its owning session is no longer valid.
+   * @param familyId - Family whose active token records must be revoked.
+   */
   revokeFamily(familyId: string): Promise<void> {
     return this.store.revokeFamily(familyId)
   }
@@ -916,7 +1063,13 @@ export interface AccessTokenClaims {
   readonly scope: readonly string[]
 }
 
+/**
+ * Raised when an access token fails parsing, signature, claim, or lifetime validation.
+ */
 export class AccessTokenInvalidError extends Error {
+  /**
+   * Stable identifier for a rejected access token.
+   */
   readonly code = 'ACCESS_TOKEN_INVALID'
 
   constructor() {
@@ -929,15 +1082,25 @@ function base64Url(value: string | Uint8Array): string {
   return Buffer.from(value).toString('base64url')
 }
 
-function parseJson<T>(value: string): T {
+function parseJson(value: string): unknown {
   try {
-    return JSON.parse(value) as T
+    return JSON.parse(value) as unknown
   } catch {
     throw new AccessTokenInvalidError()
   }
 }
 
-/** Create an EdDSA JWT without placing email, password, or other PII in claims. */
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+/**
+ * Create an EdDSA JWT containing user and session IDs with no email or password fields.
+ * @param input - User ID, session ID, and explicit scopes to include in claims.
+ * @param options - Signing key, issuer, audience, optional clock in milliseconds, and TTL in seconds.
+ * @returns The signed JWT; its default lifetime is ten minutes.
+ * @throws For a TTL outside integer range 300–900 seconds or signing failure.
+ */
 export function createAccessToken(
   input: { readonly userId: string; readonly sessionId: string; readonly scope: readonly string[] },
   options: {
@@ -970,7 +1133,13 @@ export function createAccessToken(
   return `${signingInput}.${base64Url(signature)}`
 }
 
-/** Verify an EdDSA access token and its issuer, audience, and lifetime. */
+/**
+ * Verify an EdDSA JWT, its issuer and audience, required claims, and time limits.
+ * @param token - Serialized JWT from an official client.
+ * @param options - Verification key, expected issuer and audience, and optional clock in milliseconds.
+ * @returns Verified claims; callers must still validate the persisted session and resolve workspace identity.
+ * @throws {@link AccessTokenInvalidError} for invalid tokens; cryptographic key errors may also propagate.
+ */
 export function verifyAccessToken(
   token: string,
   options: {
@@ -981,13 +1150,10 @@ export function verifyAccessToken(
   },
 ): AccessTokenClaims {
   const parts = token.split('.')
-  if (parts.length !== 3) throw new AccessTokenInvalidError()
+  if (!isJwtParts(parts)) throw new AccessTokenInvalidError()
   const [encodedHeader, encodedPayload, encodedSignature] = parts
-  if (encodedHeader === undefined || encodedPayload === undefined || encodedSignature === undefined) {
-    throw new AccessTokenInvalidError()
-  }
-  const header = parseJson<{ alg?: string; typ?: string }>(Buffer.from(encodedHeader, 'base64url').toString('utf8'))
-  if (header.alg !== 'EdDSA' || header.typ !== 'JWT') throw new AccessTokenInvalidError()
+  const header = parseJson(Buffer.from(encodedHeader, 'base64url').toString('utf8'))
+  if (!isJsonObject(header) || header.alg !== 'EdDSA' || header.typ !== 'JWT') throw new AccessTokenInvalidError()
   const validSignature = verify(
     null,
     Buffer.from(`${encodedHeader}.${encodedPayload}`, 'ascii'),
@@ -995,16 +1161,30 @@ export function verifyAccessToken(
     Buffer.from(encodedSignature, 'base64url'),
   )
   if (!validSignature) throw new AccessTokenInvalidError()
-  const claims = parseJson<Partial<AccessTokenClaims>>(Buffer.from(encodedPayload, 'base64url').toString('utf8'))
+  const claims = parseJson(Buffer.from(encodedPayload, 'base64url').toString('utf8'))
   const nowSeconds = Math.floor((options.now ?? Date.now()) / 1000)
-  if (claims.iss !== options.issuer || claims.aud !== options.audience
+  if (!isJsonObject(claims) || typeof claims.iss !== 'string' || typeof claims.aud !== 'string'
+    || claims.iss !== options.issuer || claims.aud !== options.audience
     || typeof claims.sub !== 'string' || typeof claims.sid !== 'string'
     || typeof claims.jti !== 'string' || typeof claims.iat !== 'number' || typeof claims.exp !== 'number'
-    || !Array.isArray(claims.scope) || claims.scope.some(scope => typeof scope !== 'string')
+    || !Array.isArray(claims.scope)
     || claims.iat > nowSeconds + 30 || claims.exp <= nowSeconds || claims.exp - claims.iat > 900) {
     throw new AccessTokenInvalidError()
   }
-  return claims as AccessTokenClaims
+  const scopeValues: unknown[] = claims.scope
+  const scope = scopeValues.map((value) => {
+    if (typeof value !== 'string') throw new AccessTokenInvalidError()
+    return value
+  })
+  return {
+    iss: claims.iss, aud: claims.aud, sub: claims.sub, sid: claims.sid,
+    jti: claims.jti, iat: claims.iat, exp: claims.exp, scope,
+  }
+}
+
+// String.split produces a dense array, so a three-part JWT has all three strings.
+function isJwtParts(parts: string[]): parts is [string, string, string] {
+  return parts.length === 3
 }
 
 function cryptoRandomUuid(): string {

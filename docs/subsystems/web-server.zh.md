@@ -52,6 +52,14 @@ interface Config {
 
 处理过程中抛出异常的请求（畸形的 % 转义撞上 `decodeURIComponent`、客户端在请求体中途断开）会记录为警告并应答 400（响应头已发出时则销毁 socket），绝不导致进程退出。dispose（资源释放）把 `close()` 与 `closeAllConnections()` 配对使用，因为处理器可能像 SSE（Server-Sent Events）那样保持响应打开，而这类连接永远不会自行结束；没有强制关闭，拆卸就会挂起。该包从不打印输出：URL 行归 shell 所有。逐包运维细节（含开发模式的 bundle 监视流水线）留在 [README](../../packages/host/webserver/README.zh.md) 中。
 
+## 平台 API 控制器
+
+可选的[小说创作 HTTP 插件](../../packages/api/novel-authoring-http/README.zh.md)使用宿主提供、实现 `PlatformHttpControllerLike` 的 `ctx.platformHttpController`。其 `handle()` 方法分发认证和创作请求并返回序列化响应；宿主组合认证、身份解析器及领域服务。仅注册传输层不会提供此控制器或挂载这些路由。
+
+`AuthHttpRequest` 携带方法、路径名、请求头、可选的已解析正文及经过清理的可选对端地址。Web 适配器从 socket 获取对端，而不信任转发头。`AuthHttpResponse` 和 `NovelAuthoringHttpResponse` 携带状态码、字符串值的响应头和序列化正文；适配器将这些字段写入 Node 响应。控制器解析的服务端身份建立工作区权限，独立于请求正文中的标识符。
+
+声明处的[认证类型](../../packages/identity/user-auth/src/index.ts)和[创作 HTTP 类型](../../packages/api/novel-authoring-http/src/index.ts)负责精确字段定义。传输层拥有路由与连接，注入控制器负责应用分发。
+
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>
@@ -59,6 +67,23 @@ interface Config {
 ## Cordis API
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.zh.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+
+<a id="ctxplatformhttpcontroller--platformhttpcontrollerlike"></a>
+
+### `ctx.platformHttpController` — `PlatformHttpControllerLike`
+
+The controller method required by the WebServer adapter.
+
+```ts cordis-catalog
+/**
+ * Dispatch one already-bounded HTTP request.
+ * @param request - Parsed request with adapter-supplied headers and peer address.
+ * @returns The status, headers, and serialized response body for the HTTP adapter.
+ */
+handle(request: AuthHttpRequest): Promise<AuthHttpResponse | NovelAuthoringHttpResponse>
+```
+
+Source: [`packages/api/novel-authoring-http/src/index.ts`](../../packages/api/novel-authoring-http/src/index.ts)
 
 <a id="ctxwebserver--webserver"></a>
 
