@@ -59,6 +59,7 @@ interface PersistedLog {
 interface DeepSeekDefaultsServer {
   readonly url: string
   readonly requests: JsonObject[]
+  readonly commentsSent: number
   close(): Promise<void>
 }
 
@@ -83,6 +84,7 @@ async function expectHeadlessStream(normalized: string, expectedPath: string): P
 /** Serve one deterministic DeepSeek-compatible response while retaining its request body. */
 async function deepseekDefaultsServer(options: { waitForTitleRequest?: boolean } = {}): Promise<DeepSeekDefaultsServer> {
   const requests: JsonObject[] = []
+  let commentsSent = 0
   const server = createServer((request: IncomingMessage, response: ServerResponse) => {
     let body = ''
     request.setEncoding('utf8')
@@ -96,6 +98,7 @@ async function deepseekDefaultsServer(options: { waitForTitleRequest?: boolean }
         if (keepAlives-- > 0
           || (options.waitForTitleRequest === true && !requests.some(request => request.max_tokens === 64))) {
           response.write(': keep-alive\n\n')
+          commentsSent++
           timer = setTimeout(write, 60)
           return
         }
@@ -106,8 +109,10 @@ async function deepseekDefaultsServer(options: { waitForTitleRequest?: boolean }
           '',
         ].join('\n\n'))
       }
-      let timer = setTimeout(write, 60)
+      let timer: ReturnType<typeof setTimeout> | undefined
       response.once('close', () => { clearTimeout(timer) })
+      // Send transport activity with the headers, before scheduling later comments.
+      write()
     })
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
@@ -116,6 +121,7 @@ async function deepseekDefaultsServer(options: { waitForTitleRequest?: boolean }
   return {
     url: `http://127.0.0.1:${address.port}`,
     requests,
+    get commentsSent() { return commentsSent },
     close: () => new Promise(resolve => server.close(() => { resolve() })),
   }
 }
@@ -444,8 +450,8 @@ describe('headless stream-json snapshots', () => {
     `)
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
-  it('keeps provider comments alive and sends DeepSeek defaults through the one-shot app', async () => {
-    const server = await deepseekDefaultsServer()
+  it('sends provider comments and DeepSeek defaults through the one-shot app', async () => {
+    const server = await deepseekDefaultsServer({ waitForTitleRequest: true })
     try {
       const result = await runLoaderSmoke({
         label: 'DeepSeek adapter defaults headless stream-json snapshot',
@@ -469,6 +475,10 @@ describe('headless stream-json snapshots', () => {
 
       expect(result.stderr).toBe('')
       expect(server.requests).toHaveLength(2)
+      expect(server.commentsSent).toBeGreaterThanOrEqual(3)
+      const records = parseJsonl(result.stdout)
+      expect(records.at(-1)).toMatchObject({ type: 'result', output: 'DEFAULTS_OK' })
+      expect(records.some(record => (record.event as JsonObject | undefined)?.type === 'llm/retry')).toBe(false)
       const agentRequest = server.requests.find(request => request.max_tokens === 256_000)
       const titleRequest = server.requests.find(request => request.max_tokens === 64)
       expect(agentRequest?.reasoning_effort).toBe('low')

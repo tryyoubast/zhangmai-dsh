@@ -1604,15 +1604,23 @@ describe('DeepSeekAdapter against a mock server', () => {
   it('keeps an idle provider read alive through SSE comments', async () => {
     vi.useFakeTimers()
     const encoder = new TextEncoder()
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation((_input, init) => {
+      const signal = init?.signal
       const body = new ReadableStream<Uint8Array>({
         start(controller) {
-          setTimeout(() => { controller.enqueue(encoder.encode(': keep-alive\n\n')) }, 75)
-          setTimeout(() => { controller.enqueue(encoder.encode(': keep-alive\n\n')) }, 150)
-          setTimeout(() => {
-            controller.enqueue(encoder.encode(textEvents.map(event => `data: ${event}\n\n`).join('')))
-            controller.close()
-          }, 225)
+          const timers = [
+            setTimeout(() => { controller.enqueue(encoder.encode(': keep-alive\n\n')) }, 75),
+            setTimeout(() => { controller.enqueue(encoder.encode(': keep-alive\n\n')) }, 150),
+            setTimeout(() => {
+              controller.enqueue(encoder.encode(textEvents.map(event => `data: ${event}\n\n`).join('')))
+              controller.close()
+            }, 225),
+          ]
+          // A real fetch body rejects when the watchdog aborts its transport.
+          signal?.addEventListener('abort', () => {
+            timers.forEach(clearTimeout)
+            controller.error(signal.reason)
+          }, { once: true })
         },
       })
       return Promise.resolve(new Response(body, { status: 200 }))
@@ -1628,10 +1636,11 @@ describe('DeepSeekAdapter against a mock server', () => {
           chunks.push(chunk.type)
         }
       })()
+      const outcome = Promise.allSettled([drain])
       await vi.advanceTimersByTimeAsync(75)
       await vi.advanceTimersByTimeAsync(75)
       await vi.advanceTimersByTimeAsync(75)
-      await expect(drain).resolves.toBeUndefined()
+      expect(await outcome).toEqual([{ status: 'fulfilled', value: undefined }])
       expect(chunks).toEqual(['block-start', 'text-delta', 'block-end', 'usage', 'finish'])
     } finally {
       fetchSpy.mockRestore()
