@@ -69,7 +69,7 @@ The shell runs under the effective sandbox boundary for its whole life. Changing
 
 ### Observable outcomes and failures
 
-An open returns the session id and a bounded startup message. Sends settle with one of the four wait reasons and a session status; `session_exit` means the top-level shell exited. Setup failures reject the open: a missing sandbox provider in a confined mode, a shell that exits during startup, a shell that fails to reach readiness before the startup timeout, or caller cancellation. Cleanup failures reject the close instead of claiming success.
+An open returns the session id and a bounded startup message. PowerShell captures that message from retained scrollback at publication, including output between startup readiness probes. Sends settle with one of the four wait reasons and a session status; `session_exit` means the top-level shell exited. Setup failures reject the open: a missing sandbox provider in a confined mode, a shell that exits during startup, a shell that fails to reach readiness before the startup timeout, or caller cancellation. Cleanup failures reject the close instead of claiming success.
 
 -----
 

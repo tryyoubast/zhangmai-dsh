@@ -15,7 +15,7 @@ import { BashTerminalBackend, PWSH_PROMPT_SETUP } from '@deepseek-ai/dsh-termina
 import { ENCODING_PREAMBLE } from '@deepseek-ai/dsh-pwsh-local'
 import * as ptyLocal from '@deepseek-ai/dsh-terminal-bash'
 import type { ResolvedConfig } from '@deepseek-ai/dsh-terminal-bash/src/config.ts'
-import type { LocalPtySession } from '@deepseek-ai/dsh-terminal-bash/src/session.ts'
+import { LocalPtySession } from '@deepseek-ai/dsh-terminal-bash/src/session.ts'
 import { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
 import type {
   SubprocessHandle,
@@ -374,7 +374,7 @@ describe('BashTerminalBackend startup rollback', () => {
           cancel: () => false,
         }
       },
-      read: () => ({ text: '', totalLines: 0, lineBegin: 0, lineEnd: 0, truncated: false }),
+      read: () => ({ text: 'setup-echo dsh> ', totalLines: 1, lineBegin: 0, lineEnd: 1, truncated: false }),
     } as unknown as LocalPtySession
     const backend = new BashTerminalBackend(
       ctx,
@@ -413,7 +413,7 @@ describe('BashTerminalBackend startup rollback', () => {
           cancel: () => false,
         }
       },
-      read: () => ({ text: '', totalLines: 0, lineBegin: 0, lineEnd: 0, truncated: false }),
+      read: () => ({ text: "function prompt { 'dsh> ' }\ndsh> ", totalLines: 2, lineBegin: 0, lineEnd: 2, truncated: false }),
     } as unknown as LocalPtySession
     const backend = new BashTerminalBackend(
       ctx,
@@ -424,7 +424,60 @@ describe('BashTerminalBackend startup rollback', () => {
     await backend.spawn(spec(agent(ctx)))
     expect(sends).toHaveLength(2)
     expect(sends[1]).toMatchObject({ text: '', submit: false })
-    expect(session.motd).toBe('dsh> ')
+    expect(session.motd).toBe("function prompt { 'dsh> ' }\ndsh> ")
+  })
+
+  it('retains startup output arriving between a silence settlement and the next readiness probe', async () => {
+    vi.useFakeTimers()
+    const ctx = new Context()
+    let session: LocalPtySession | undefined
+    try {
+      await ctx.plugin(SessionProjectionRegistry)
+      await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access', workspaceRoot: '/workspace' })
+      const output = new PassThrough()
+      const outcome = Promise.withResolvers<{ exitCode: number | null; signal: NodeJS.Signals | null }>()
+      let sends = 0
+      let promptedInspections = 0
+      const terminal: SubprocessTerminalHandle = {
+        pid: 123, output, done: outcome.promise,
+        write: async () => { output.write(Buffer.from('setup echo\n')) },
+        inspectForeground: async () => ({
+          processGroupId: 123,
+          inputWaiting: sends > 1 && promptedInspections++ > 0,
+        }),
+        signalForeground: async () => 123,
+        terminate: async () => {
+          output.end()
+          outcome.resolve({ exitCode: null, signal: 'SIGTERM' })
+        },
+      }
+      const backend = new BashTerminalBackend(
+        ctx, { ...config(), shellDialect: 'pwsh' }, async () => terminal,
+        (handle, resolved) => {
+          const local = new LocalPtySession(handle, resolved)
+          session = local
+          const startSend = local.startSend.bind(local)
+          vi.spyOn(local, 'startSend').mockImplementation((request) => {
+            // The previous operation has settled; this output belongs to neither send.
+            if (++sends === 2) output.write(Buffer.from('\x1b]133;D;0\x07dsh> '))
+            return startSend(request)
+          })
+          return local
+        },
+      )
+      const spawning = backend.spawn(spec(agent(ctx)))
+      const observed = Promise.allSettled([spawning])
+      await vi.advanceTimersByTimeAsync(90)
+      expect(await observed).toEqual([{ status: 'fulfilled', value: session }])
+      expect(sends).toBe(2)
+      expect(session?.read({}).text).toBe('setup echo\ndsh> ')
+      expect(session?.motd).toBe('setup echo\ndsh> ')
+    } finally {
+      await session?.close('test complete')
+      vi.restoreAllMocks()
+      await ctx.fiber.dispose()
+      vi.useRealTimers()
+    }
   })
 
   it('rejects a pwsh bootstrap whose shell exits or times out', async () => {
@@ -524,7 +577,7 @@ describe('BashTerminalBackend startup rollback', () => {
           cancel: () => false,
         }
       },
-      read: () => ({ text: '', totalLines: 0, lineBegin: 0, lineEnd: 0, truncated: false }),
+      read: () => ({ text: 'dsh> ', totalLines: 1, lineBegin: 0, lineEnd: 1, truncated: false }),
     } as unknown as LocalPtySession
     const backend = new BashTerminalBackend(
       ctx,
