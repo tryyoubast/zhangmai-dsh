@@ -14,11 +14,13 @@ The [authentication store](../../../../packages/identity/user-auth/src/postgres.
 
 Password reset takes the user row FOR UPDATE before enumerating and locking families in sorted order. This conflicts with ordinary refresh operations' KEY SHARE locks, keeping the enumeration stable and retaining a single user-to-family-to-token lock order. Different families of the same user can otherwise rotate concurrently.
 
-The store returns rotated, invalid, or reused. The service hides invalid/reused distinctions, and HTTP returns the same 401 for normal credential rejection. Audit failures roll back revocation and remain availability failures. The audit identifies only the family, user, session, and presented token record; credentials and hashes are excluded.
+The store returns rotated, invalid, or reused. The service hides invalid/reused distinctions, and HTTP returns the same 401 for normal credential rejection. Audit failures roll back revocation and remain availability failures. HTTP classifies email and password input failures by a private validation error type; database and hashing failures remain 500 responses even when their messages contain credential-related words. The audit identifies only the family, user, session, and presented token record; credentials and hashes are excluded.
 
 ## Alternatives considered
 
 **Conditional-update exception handling** cannot make a separate revoke decision atomic with descendant creation and couples credential rejection to transaction errors.
+
+**Message-substring HTTP classification** confuses database password-authentication failures with invalid user input and depends on the capitalization of validation messages. A source-owned validation type preserves input rejection while keeping infrastructure failures distinct.
 
 **Token row locks alone** serialize duplicate use of one row but do not serialize operations on separate ancestor and descendant rows in a family.
 

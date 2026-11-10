@@ -104,9 +104,9 @@ describe('authentication HTTP controller', () => {
     { route: 'me', method: 'GET', operation: 'resolveIdentity', body: {} },
   ] as const)('$route asynchronous failures', ({ route, method, operation, body: requestBody }) => {
     it.each([
-      { message: 'password validation secret detail', status: 400, error: 'invalid_request' },
-      { message: 'email address validation secret detail', status: 400, error: 'invalid_request' },
-      { message: 'origin validation secret detail', status: 400, error: 'invalid_request' },
+      { message: 'password authentication failed for user "auth_login"', status: 500, error: 'authentication_unavailable' },
+      { message: 'email address delivery secret detail', status: 500, error: 'authentication_unavailable' },
+      { message: 'origin certificate secret detail', status: 500, error: 'authentication_unavailable' },
       { message: 'backend connection secret detail', status: 500, error: 'authentication_unavailable' },
     ])('returns $status without leaking $message', async ({ message, status, error }) => {
       const store = new HttpStore()
@@ -149,6 +149,43 @@ describe('authentication HTTP controller', () => {
         process.off('unhandledRejection', onUnhandled)
       }
     })
+  })
+
+  it.each([
+    { route: 'register', body: { email: 'invalid', password: 'a sufficiently long password' } },
+    { route: 'register', body: { email: 'writer@example.com', password: 'short' } },
+    { route: 'register', body: { email: 'writer@example.com', password: 'passwordpassword' } },
+    { route: 'login', body: { email: 'invalid', password: 'a sufficiently long password' } },
+    { route: 'forgot-password', body: { email: 'invalid' } },
+    { route: 'reset-password', body: { token: 'reset-token', password: 'short' } },
+    { route: 'reset-password', body: { token: 'reset-token', password: 'passwordpassword' } },
+  ])('returns 400 for invalid credentials on $route', async ({ route, body: requestBody }) => {
+    const store = new HttpStore()
+    const controller = new AuthHttpController(new UserAuthService(store), store)
+    const response = await controller.handle({
+      method: 'POST', path: `/api/auth/${route}`, headers: {}, body: requestBody,
+    })
+    expect(response.status).toBe(400)
+    expect(body(response)).toEqual({ error: 'invalid_request' })
+    expect(store.users.size).toBe(0)
+    expect(store.refresh.size).toBe(0)
+  })
+
+  it('returns 500 when the refresh store rejects database password authentication', async () => {
+    const store = new HttpStore()
+    vi.spyOn(store, 'rotate').mockRejectedValue(new Error('password authentication failed for user "auth_login"'))
+    const controller = new AuthHttpController(new UserAuthService(store), store, {
+      sessionResolver: {
+        findSessionByTokenHash: async () => null,
+        findSessionById: async () => null,
+        revokeSession: async () => undefined,
+      },
+    })
+    const response = await controller.handle({
+      method: 'POST', path: '/api/auth/refresh', headers: {}, body: { refreshToken: 'opaque-token' },
+    })
+    expect(response.status).toBe(500)
+    expect(body(response)).toEqual({ error: 'authentication_unavailable' })
   })
 
   it('refreshes an official-client session through an instance-backed session resolver', async () => {

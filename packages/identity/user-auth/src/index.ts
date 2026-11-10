@@ -169,6 +169,9 @@ export async function verifyPassword(password: string, encoded: string, options:
   return timingSafeEqual(actual, expected)
 }
 
+/** Email and password input failures eligible for a sanitized HTTP 400 response. */
+class AuthInputValidationError extends Error {}
+
 /**
  * Normalize an email for uniqueness and login while leaving display storage to the caller.
  * @param email - Email value to trim, normalize with NFKC, and lowercase using en-US.
@@ -177,7 +180,7 @@ export async function verifyPassword(password: string, encoded: string, options:
  */
 export function normalizeEmail(email: string): string {
   const normalized = email.trim().normalize('NFKC').toLocaleLowerCase('en-US')
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(normalized)) throw new Error('Invalid email address')
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(normalized)) throw new AuthInputValidationError('Invalid email address')
   return normalized
 }
 
@@ -187,9 +190,9 @@ export function normalizeEmail(email: string): string {
  * @throws When the password is too short or matches a listed common password.
  */
 export function validatePassword(password: string): void {
-  if (password.length < 12) throw new Error('Password must contain at least 12 characters')
+  if (password.length < 12) throw new AuthInputValidationError('Password must contain at least 12 characters')
   const weak = new Set(['passwordpassword', '123456789012', 'qwertyuiopas'])
-  if (weak.has(password.toLocaleLowerCase('en-US'))) throw new Error('Password is too common')
+  if (weak.has(password.toLocaleLowerCase('en-US'))) throw new AuthInputValidationError('Password is too common')
 }
 
 /**
@@ -645,7 +648,7 @@ export class AuthHttpController {
         default: return jsonResponse(404, { error: 'not_found' })
       }
     } catch (error) {
-      if (error instanceof Error && /password|email address|origin/u.test(error.message)) {
+      if (error instanceof AuthInputValidationError) {
         return jsonResponse(400, { error: 'invalid_request' })
       }
       return jsonResponse(500, { error: 'authentication_unavailable' })

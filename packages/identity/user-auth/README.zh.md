@@ -60,7 +60,7 @@ Refresh token 轮换由 Store 的单个事务负责，包括重放检测、famil
 
 `pnpm run test:postgres` 执行独立的 PostgreSQL 18 回归测试。它要求认证运行账号使用 `DATABASE_TEST_URL`，迁移账号使用 `DATABASE_MIGRATION_URL`，且两者指向同一个名称包含 `test` 的隔离数据库。配置缺失或不一致时直接失败，不跳过；测试从不加载生产 `.env`。fixture 要求已应用提交的迁移和 ownership bootstrap，宿主必须销毁测试数据库，才能移除仅追加审计记录。
 
-`AuthHttpController.handle()` 在错误处理范围内等待路由操作。符合现有分类的凭据校验错误返回 `400 invalid_request`；其他失败返回 `500 authentication_unavailable`，不包含原始错误详情。会话解析器可以依赖实例状态：控制器通过解析器对象调用其方法。JWT 解析先校验解码对象及字段，再返回声明。
+`AuthHttpController.handle()` 在错误处理范围内等待路由操作。邮箱语法和密码策略校验失败通过私有校验错误类型返回 `400 invalid_request`；哈希、已存凭据、数据库及其他故障均返回 `500 authentication_unavailable`，不依赖错误消息文本，也不包含原始错误详情。会话解析器可以依赖实例状态：控制器通过解析器对象调用其方法。JWT 解析先校验解码对象及字段，再返回声明。
 
 本包不发布不变量伴生模块，因为认证状态在 Store 操作与数据库事务中校验，不会镜像到独立的运行时注册表。
 

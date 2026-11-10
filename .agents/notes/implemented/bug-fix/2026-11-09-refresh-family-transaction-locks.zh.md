@@ -14,11 +14,13 @@ Status: implemented
 
 密码重置先对用户行执行 FOR UPDATE，再枚举 family 并按排序顺序加锁。该锁与普通刷新操作的 KEY SHARE 锁冲突，使枚举结果稳定，并保持用户、family、token 的单一加锁顺序。同一用户的不同 family 在其他情况下仍可并发轮换。
 
-存储返回 rotated、invalid 或 reused。service 隐藏 invalid/reused 的区别，HTTP 对正常凭证拒绝统一返回 401。审计失败会回滚撤销，并作为可用性故障处理。审计仅标识 family、用户、session 和被提交 token 的记录，不包含凭证或 hash。
+存储返回 rotated、invalid 或 reused。service 隐藏 invalid/reused 的区别，HTTP 对正常凭证拒绝统一返回 401。审计失败会回滚撤销，并作为可用性故障处理。HTTP 通过私有校验错误类型识别邮箱和密码输入错误；即使数据库和哈希故障的消息包含凭据相关词语，也仍返回 500。审计仅标识 family、用户、session 和被提交 token 的记录，不包含凭证或 hash。
 
 ## Alternatives considered
 
 **捕获条件更新异常**无法让独立的撤销判断与后代创建保持原子性，还会将凭证拒绝与事务错误耦合。
+
+**按消息子串分类 HTTP 错误**会将数据库密码认证故障误判为用户输入错误，还依赖校验消息的大小写。由校验代码定义的错误类型保留输入拒绝，同时明确区分基础设施故障。
 
 **仅使用 token 行锁**可以串行化同一行的重复使用，却不能串行化 family 中不同祖先和后代行上的操作。
 

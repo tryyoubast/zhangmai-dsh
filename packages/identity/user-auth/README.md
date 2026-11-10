@@ -60,7 +60,7 @@ Refresh-token rotation is one Store transaction, including replay detection, fam
 
 `pnpm run test:postgres` runs the independent PostgreSQL 18 regression suite. It requires `DATABASE_TEST_URL` for the authentication runtime and `DATABASE_MIGRATION_URL` for the migrator, pointing to the same isolated database whose name contains `test`. Missing or inconsistent configuration fails rather than skipping; the suite never loads the production `.env`. Its fixtures require the committed migrations and ownership bootstrap, and the host must dispose of the test database to remove append-only audit records.
 
-`AuthHttpController.handle()` awaits route operations inside its error handler. Credential-validation errors matching its existing classification return `400 invalid_request`; other failures return `500 authentication_unavailable` without raw error details. Session resolvers may use instance state: the controller calls their methods on the resolver object. JWT parsing validates decoded objects and fields before exposing claims.
+`AuthHttpController.handle()` awaits route operations inside its error handler. Invalid email syntax and password-policy failures return `400 invalid_request` through a private validation error type; hashing, stored-credential, database, and other failures return `500 authentication_unavailable` regardless of their message text, without raw error details. Session resolvers may use instance state: the controller calls their methods on the resolver object. JWT parsing validates decoded objects and fields before exposing claims.
 
 No invariant companion is published because authentication state is validated within store operations and database transactions rather than mirrored in an independent runtime registry.
 
