@@ -53,13 +53,19 @@ kind: "package-reference"
 
 `apply()` 通过 WebServer 路由注册器注册 `/api` 前缀及其释放函数，不占用 SPA fallback。`PlatformHttpController` 委托认证，并在解析身份后创建创作服务；`NovelAuthoringHttpController` 使用该身份分发领域操作。
 
-工作区和小说创建、成员邀请／列表／角色变更／撤销、所有权转移及归档／恢复均由已认证的领域服务负责。生成任务创建、仅限 Worker 的生成和提案物化、审核／发布、回滚及持久化上下文读取返回适合 Web UI 的业务状态。浏览器身份可排队生成任务并审核提案，但不能调用仅限 Worker 的生成和提案路由。Cookie/JWT 解析仍由注入的认证服务负责。
+工作区和小说创建、成员邀请／列表／角色变更／撤销、所有权转移及归档／恢复均由已认证的领域服务负责。生成任务创建、仅限 Worker 的生成和提案物化、审核／发布、回滚及持久化上下文读取返回适合 Web UI 的业务状态。浏览器身份可排队生成任务并审核提案，但不能调用仅限 Worker 的生成和提案路由。Cookie/JWT 解析仍由注入的认证服务负责。只有目标匹配的工作区恢复操作可以解析归档成员权限。
 
 [实现代码](src/index.ts)负责分发与响应映射；[Web 适配器测试](tests/web-adapter.spec.ts)验证有界请求处理，[控制器测试](tests/controller.spec.ts)验证基于身份的分发。
 
 Worker 提案请求必须提供受支持的固定 `targetType`。目标类型缺失、为空或不受支持时，控制器使用创作库共享的类型守卫，在调用创作服务前返回 `400 invalid_request`。
 
+配置 `allowedOrigin` 时，改变业务状态的请求必须在身份解析前提供完全匹配的 Origin。浏览器生成路由先持久化任务，再调用可选的 `notifyGeneration`。配置通知后，只有通知成功才返回 `202`；失败仅返回 `503 {"error":"queue_unavailable"}`。重新提交相同幂等正文会再次通知已持久化任务。无效或冲突请求不触发通知。GET 生成任务读取返回已持久化进度，不产生队列副作用。
+
 路由匹配先移除空路径段，再校验段数。只有匹配的路由才向服务传入工作区、小说或提案 ID；不匹配的路径返回 `404 not_found`。
+
+审核提案时，不存在的提案和在已认证工作区内不可见的提案均返回 `404 {"error":"not_found"}`。审核查询在写入前拒绝操作。权限错误返回 `403 forbidden`；意外故障返回 `500 authoring_unavailable`，不包含原始异常详情。[审核响应决策](../../../.agents/notes/implemented/bug-fix/2026-11-11-proposal-review-not-found.zh.md) 定义了精确的领域错误映射。
+
+发布与回滚将创作库的 `ProposalOperationError` 映射为 404 `not_found`、403 `forbidden`、409 `conflict` 或 400 `invalid_request`。未分类异常仅返回 500 `authoring_unavailable`，包括意外的权限和事务错误；数据库错误文本不能将这些故障转换为正常冲突响应。
 
 本包不发布不变量伴生模块，因为该无状态适配器负责校验请求，并将持久化交给注入的创作服务。
 

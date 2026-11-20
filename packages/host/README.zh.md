@@ -1,15 +1,15 @@
 ---
-description: "Web GUI Host 侧的包映射：HTTP 与 SPA 服务器、工作区目录选择实现、open-in-app 启动路由和插件清单投影。"
+description: "应用宿主包映射：HTTP 与 SPA 服务器、小说 API 与生成 worker 组装、工作区目录选择、已安装应用启动路由和插件清单。"
 kind: "package-group"
 ---
 
-# host/ — Web GUI 宿主侧
+# host/ — 应用宿主
 
 [English](README.md) | 中文
 
 ## 概述
 
-`host/` 组提供 Web GUI 的普通 HTTP 服务器、服务已构建 Web 壳的 SPA dist 服务器、带原生／浏览／自适应组合包的工作区目录选择 seam、open-in-app 的应用探测与启动路由，以及只读的插件清单投影。这八个包都是产品包；浏览器传输位于 [`client/`](../client/README.zh.md)，组合应用是 [`apps/cli`](../../apps/cli/README.zh.md)，它启动 [`dsh-base` 组合包](../bundle/base/cordis.patch.yml) 来提供 `apps/web/` 下的 Web 应用。选择器后端可在共享 seam 后互相替换。
+`host/` 组提供 HTTP 应用服务器及基础设施。Web GUI 包服务已构建的浏览器壳、选择 workspace 目录、打开已安装应用并投影插件清单。独立的小说宿主组装经过认证的创作请求与生成 worker。应用通过 [`apps/cli`](../../apps/cli/README.zh.md) 启动；[`client/`](../client/README.zh.md) 拥有浏览器传输。
 
 ## 目录
 
@@ -22,7 +22,7 @@ kind: "package-group"
 <a id="packages"></a>
 ## 包
 
-八个包分别承担 Host 角色；各包的 README 拥有自己的约定与配置。
+各包的 README 拥有运行行为与配置。
 
 | 包 | 职责 | ctx 键 |
 |---|---|---|
@@ -34,6 +34,7 @@ kind: "package-group"
 | [`directory-picker-auto/`](directory-picker-auto/README.zh.md) | 在启动时挂载匹配后端的宿主自适应选择器 | 挂载一个后端 |
 | [`open-in-app/`](open-in-app/README.zh.md) | 在已安装应用中打开 workspace 目录的应用探测、图标与启动路由 | 消费 `ctx.webServer` |
 | [`plugin-inventory/`](plugin-inventory/README.zh.md) | 当前 Loader 条目的只读投影 | Remote `pluginInventory/list` |
+| [`novel-host/`](novel-host/README.zh.md) | 受限小说 API 和串行 Redis Stream worker 组装 | API 模式提供 `ctx.platformHttpController` |
 
 -----
 

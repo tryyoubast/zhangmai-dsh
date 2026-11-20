@@ -42,6 +42,8 @@ kind: "package-library"
 
 浏览器登录返回带有 `HttpOnly`、`Secure`、`SameSite=Lax` 和 `Path=/` 的 `__Host-dsh_session` Cookie。官方客户端登录和刷新返回短期 EdDSA Access Token 以及轮换后的不透明 Refresh Token。状态变更请求可以校验允许的 `Origin`；宿主应用仍需把控制器接入自身 HTTP 框架、Session 解析器、工作区身份解析器和密钥管理系统。
 
+配置登录工作区解析器后，解析器完成之前，两种客户端都不会收到凭证。身份解析失败或不可用时，控制器返回经过脱敏的可用性错误，不返回 Cookie、JWT 或 Refresh Token。未配置工作区解析器的浏览器登录保留仅 Cookie 的行为；官方客户端登录必须配置解析器。宿主将首次登录初始化与普通身份解析分开，并通过 Session 解析器验证会话。
+
 -----
 
 <a id="understand-the-implementation"></a>

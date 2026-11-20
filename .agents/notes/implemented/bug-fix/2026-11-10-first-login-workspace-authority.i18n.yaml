@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-11-10-first-login-workspace-authority.md
+2026-11-10-first-login-workspace-authority.md: c3ac3c3d142e2c9833252b660e34566536069379
+2026-11-10-first-login-workspace-authority.zh.md: 1465d8df17004aba9c7b10f114a10c6dc3b123d6

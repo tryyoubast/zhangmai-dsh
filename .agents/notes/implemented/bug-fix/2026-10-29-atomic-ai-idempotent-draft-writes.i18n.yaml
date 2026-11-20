@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-10-29-atomic-ai-idempotent-draft-writes.md
-2026-10-29-atomic-ai-idempotent-draft-writes.md: 1abecfff7cb376bff5775eea7b4aeebcc0714c41
-2026-10-29-atomic-ai-idempotent-draft-writes.zh.md: 3a2875e61d9b0877170580478a768e93a187f51e
+2026-10-29-atomic-ai-idempotent-draft-writes.md: 078e3c528b58a3876e82d299bfcb635ab0552d54
+2026-10-29-atomic-ai-idempotent-draft-writes.zh.md: 0eade522c785e90069d9a377818aec8af3f341a1

@@ -28,6 +28,7 @@ This group maps the installable patch layers used by `dsh --profile`. Each packa
 | [`headless`](headless/README.md) | One-shot command-line task application over base | `headless-runner` |
 | [`sdk-app`](sdk-app/README.md) | SDK JSON-RPC stdio application over base | mounts the SDK server |
 | [`sdk-minimal`](sdk-minimal/README.md) | Standalone minimal SDK application without base or Web | — (complete patch tree) |
+| [`novel-app`](novel-app/README.md) | Standalone novel API or worker under a custom startup-only profile | mounts `novel-host` |
 
 In-box bundles resolve from the dsh installation; out-of-tree bundles install into a profile through `dsh plugin --profile <name> add <package>`.
 
