@@ -391,7 +391,7 @@ export class GenerationMaterializationService {
           contentSha256: aliasText(record, 'content_sha256', 'contentSha256') ?? text(record, 'contentSha256'),
           contentBytes: aliasInteger(record, 'content_bytes', 'contentBytes') ?? integer(record, 'contentBytes'),
           contentStorageKind,
-          ...optional({ contentText: aliasText(record, 'content_text', 'contentText'), contentObjectKey: aliasText(record, 'content_object_key', 'contentObjectKey'), summary: aliasText(record, 'summary') }),
+          ...optional({ contentText: aliasText(record, 'content_text', 'contentText') ?? undefined, contentObjectKey: aliasText(record, 'content_object_key', 'contentObjectKey') ?? undefined, summary: aliasText(record, 'summary') }),
         }
         targetId = await this.writer.createChapterVersionDraft(input)
         break

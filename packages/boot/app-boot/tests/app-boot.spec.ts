@@ -645,7 +645,7 @@ describe('boot', () => {
     }
   })
 
-  it('can resolve bare plugins from the harness when the config project shadows their package name', async () => {
+  it.each(['available', 'unavailable'] as const)('resolves bare plugins from their configured owner with the internal loader %s', async (internalLoader) => {
     const dir = tmp()
     const harness = tmp()
     const absolutePlugin = join(dir, 'absolute.mjs')
@@ -656,7 +656,7 @@ describe('boot', () => {
     writeFileSync(join(shadow, 'package.json'), JSON.stringify({
       name: '@deepseek-ai/dsh-system-prompt',
       type: 'module',
-      exports: './index.mjs',
+      exports: { import: './index.mjs', require: './not-an-esm-plugin.cjs' },
     }))
     writeFileSync(join(shadow, 'index.mjs'), [
       'export function apply(ctx) {',
@@ -667,7 +667,7 @@ describe('boot', () => {
     writeFileSync(join(harnessPlugin, 'package.json'), JSON.stringify({
       name: '@deepseek-ai/dsh-system-prompt',
       type: 'module',
-      exports: './index.mjs',
+      exports: { import: './index.mjs', require: './not-an-esm-plugin.cjs' },
     }))
     writeFileSync(join(harnessPlugin, 'index.mjs'), [
       'export function apply(ctx) {',
@@ -692,7 +692,10 @@ describe('boot', () => {
       `  name: ${JSON.stringify(absolutePlugin)}`,
       '',
     ].join('\n'))
-    const configOwned = await boot(NAME, configOwnedPath)
+    const prepare = (ctx: Context): void => {
+      if (internalLoader === 'unavailable') ctx.loader.internal = undefined
+    }
+    const configOwned = await boot(NAME, configOwnedPath, undefined, prepare)
     try {
       expect(configOwned.get('shadowPluginLoaded')).toBe(true)
       expect(configOwned.get('systemPrompt')).toBeUndefined()
@@ -701,7 +704,7 @@ describe('boot', () => {
       await configOwned.fiber.dispose()
     }
     const harnessBaseUrl = pathToFileURL(join(harness, 'entry.mjs')).href
-    const ctx = await boot(NAME, hostOwnedPath, undefined, undefined, harnessBaseUrl)
+    const ctx = await boot(NAME, hostOwnedPath, undefined, prepare, harnessBaseUrl)
     try {
       expect(ctx.get('harnessPluginLoaded')).toBe(true)
       expect(ctx.get('shadowPluginLoaded')).toBeUndefined()

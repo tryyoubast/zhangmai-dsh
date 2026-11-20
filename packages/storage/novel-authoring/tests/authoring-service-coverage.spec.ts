@@ -86,19 +86,29 @@ describe('generation lifecycle persistence', () => {
   })
   it.each([null, 'source'] as const)('claims a durable request with source session %s', async (sourceSessionId) => {
     const db = serviceDatabase()
-    db.selects.push([{ novelId: 'novel' }], [{ ...input, id: 'run', sourceSessionId, instruction: 'Write' }])
+    db.selects.push([{ novelId: 'novel', status: 'queued' }], [{ ...input, id: 'run', sourceSessionId, instruction: 'Write' }])
     db.executionReplies.set(5, [{ claimed: true }])
     const result = await new NovelAuthoringService(db.database, worker).getQueuedGenerationRequest(base)
     expect(result.sourceSessionId).toBe(sourceSessionId ?? '00000000-0000-0000-0000-000000000000')
     expect(result.generationRunId).toBe('run')
+    expect(db.writes[0]?.values).toMatchObject({ status: 'running', completedAt: null })
+    expect((db.writes[0]?.values as Row).heartbeatAt).toBeInstanceOf(Date)
+    expect(db.transactions).toBe(1)
   })
   it.each(['missing', 'unclaimed', 'disappeared', 'empty'] as const)('rejects %s queued requests', async (state) => {
     const db = serviceDatabase()
-    db.selects.push(state === 'missing' ? [] : [{ novelId: 'novel' }])
+    db.selects.push(state === 'missing' ? [] : [{ novelId: 'novel', status: 'queued' }])
     db.executionReplies.set(5, state === 'unclaimed' ? [] : [{ claimed: true }])
     db.selects.push(state === 'disappeared' ? [] : [{ ...input, instruction: ' ' }])
     await expect(new NovelAuthoringService(db.database, worker).getQueuedGenerationRequest(base)).rejects.toThrow()
     expect(db.rollbacks).toBe(1)
+  })
+  it.each(['running', 'completed', 'failed', 'cancelled'] as const)('rejects a %s candidate before attempting a claim or status write', async (status) => {
+    const db = serviceDatabase()
+    db.selects.push([{ novelId: 'novel', status }])
+    await expect(new NovelAuthoringService(db.database, worker).getQueuedGenerationRequest(base)).rejects.toThrow('already claimed or unavailable')
+    expect(db.executes).toHaveLength(4)
+    expect(db.writes).toHaveLength(0)
   })
   it('reads statuses without mutating the run and rejects a missing run', async () => {
     const db = serviceDatabase()
@@ -144,8 +154,9 @@ describe('generation lifecycle persistence', () => {
 describe('workspace management and publication authorization', () => {
   it('creates trimmed workspace and owner membership in one transaction', async () => {
     const db = serviceDatabase()
-    await expect(new WorkspaceAuthoringService(db.database, owner).createWorkspace({ name: '  Research  ' })).resolves.toBe('created')
-    expect(db.writes.map(write => write.values)).toEqual([{ ownerUserId: 'user', name: 'Research', status: 'active' }, { workspaceId: 'created', userId: 'user', role: 'owner' }])
+    const workspaceId = await new WorkspaceAuthoringService(db.database, owner).createWorkspace({ name: '  Research  ' })
+    expect(workspaceId).toMatch(/^[\da-f-]{36}$/u)
+    expect(db.writes.map(write => write.values)).toEqual([{ id: workspaceId, ownerUserId: 'user', name: 'Research', status: 'active' }, { workspaceId, userId: 'user', role: 'owner' }])
     expect(db.transactions).toBe(1)
   })
   it('returns visible workspace and member rows', async () => {
@@ -155,13 +166,12 @@ describe('workspace management and publication authorization', () => {
     await expect(service.listWorkspaces()).resolves.toEqual([{ id: 'w' }])
     await expect(service.listMembers('workspace')).resolves.toEqual([{ userId: 'member' }])
   })
-  it('rejects blank and absent-created workspaces', async () => {
+  it('rejects blank workspace names before starting a transaction', async () => {
     const db = serviceDatabase()
     const service = new WorkspaceAuthoringService(db.database, owner)
     await expect(service.createWorkspace({ name: ' ' })).rejects.toThrow('name is required')
-    db.inserts.push([])
-    await expect(service.createWorkspace({ name: 'Valid' })).rejects.toThrow('was not created')
-    expect(db.writes).toHaveLength(1)
+    expect(db.writes).toHaveLength(0)
+    expect(db.transactions).toBe(0)
   })
   it.each([undefined, { genre: 'fantasy' }])('creates a draft novel preserving attributes %j', async (attributes) => {
     const db = serviceDatabase()
@@ -197,14 +207,16 @@ describe('workspace management and publication authorization', () => {
   it('calls publication procedures only for human owners and positive rollback versions', async () => {
     const db = serviceDatabase()
     const service = new ProposalPublicationService(db.database, owner)
-    await service.publish({ workspaceId: 'workspace', proposalId: 'proposal' })
-    await service.rollback({ workspaceId: 'workspace', targetType: 'characters', targetId: 'c', versionNo: 1 })
+    const proposalId = '1ce83391-e2f7-426a-898a-d41a298b36ef'
+    const targetId = '86b09fd4-f246-42f6-9bd6-9e35457aabbb'
+    await service.publish({ workspaceId: 'workspace', proposalId })
+    await service.rollback({ workspaceId: 'workspace', targetType: 'characters', targetId, versionNo: 1 })
     expect(db.transactions).toBe(2)
     expect(db.executes).toHaveLength(10)
     for (const principal of [worker, editor, { ...owner, workspaceId: 'other' }]) {
-      await expect(new ProposalPublicationService(db.database, principal).publish({ workspaceId: 'workspace', proposalId: 'p' })).rejects.toThrow()
+      await expect(new ProposalPublicationService(db.database, principal).publish({ workspaceId: 'workspace', proposalId })).rejects.toMatchObject({ kind: 'forbidden' })
     }
-    for (const versionNo of [0, 1.5]) await expect(service.rollback({ workspaceId: 'workspace', targetType: 'characters', targetId: 'c', versionNo })).rejects.toThrow('positive')
+    for (const versionNo of [0, 1.5]) await expect(service.rollback({ workspaceId: 'workspace', targetType: 'characters', targetId, versionNo })).rejects.toMatchObject({ kind: 'invalid_request' })
   })
 })
 

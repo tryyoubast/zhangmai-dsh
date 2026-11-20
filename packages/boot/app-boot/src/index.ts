@@ -11,6 +11,7 @@ import { readFileSync } from 'node:fs'
 import { parseEnv } from 'node:util'
 import { basename, dirname, isAbsolute, resolve } from 'node:path'
 import * as yaml from 'js-yaml'
+import { resolve as resolveModule } from 'import-meta-resolve'
 import { Context, type FiberState } from '@deepseek-ai/cordis'
 import Loader, { type Entry, type EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
 import Include, { applyEntryPatches, entryListSchema, type PatchOptions } from '@deepseek-ai/cordis-plugin-include'
@@ -519,19 +520,20 @@ export async function mountRootInclude(
   patches: readonly PatchOptions[] = [],
   bareModuleBaseUrl?: string,
 ): Promise<Entry | undefined> {
-  ctx.loader.builtins.include = bareModuleBaseUrl === undefined
-    ? Include
-    : class HostResolvedRootInclude extends Include {
-      override import(name: string, getOuterStack?: () => string[]): unknown {
-        const specifier = isAbsolute(name) ? pathToFileURL(name).href : name
-        if (name.startsWith('.') || name.startsWith('cordis:')) return super.import(specifier, getOuterStack)
-        const internal = this.ctx.loader.internal
-        /* v8 ignore next -- Node supplies the internal loader; this preserves the
-           original diagnostic for hypothetical embedders without it. */
-        if (internal === undefined) return super.import(specifier, getOuterStack)
-        return internal.import(specifier, bareModuleBaseUrl, {})
+  ctx.loader.builtins.include = class ResolvedInclude extends Include {
+    override import(name: string, getOuterStack?: () => string[]): unknown {
+      const specifier = isAbsolute(name) ? pathToFileURL(name).href : name
+      if (name.startsWith('cordis:')) return super.import(specifier, getOuterStack)
+      const internal = this.ctx.loader.internal
+      if (internal === undefined) {
+        const configBaseUrl = pathToFileURL(this.filename).href
+        const baseUrl = name.startsWith('.') ? configBaseUrl : bareModuleBaseUrl ?? configBaseUrl
+        return import(/* @vite-ignore */ resolveModule(specifier, baseUrl))
       }
+      if (bareModuleBaseUrl === undefined || name.startsWith('.')) return super.import(specifier, getOuterStack)
+      return internal.import(specifier, bareModuleBaseUrl, {})
     }
+  }
   // `cordis:group` alongside it: a group row is how a composition gives one
   // `isolate` realm to a provider and its consumers together, and an agent
   // preset living outside this workspace cannot resolve `@deepseek-ai/cordis-plugin-group`
@@ -767,8 +769,8 @@ export async function assertEntriesActivated(ctx: Context, binName: string): Pro
  * partial context; a missing fiber or never-activating entry is rejected by
  * the final audit, {@link assertEntriesActivated}, which rethrows a plugin's
  * init rejection with its original stack; later unhandled rejections remain
- * covered by {@link installFailLoud}. Built bins need the Loader's native
- * helper for bare plugin specifiers; relative specifiers do not.
+ * covered by {@link installFailLoud}. When Node internals are unavailable,
+ * public ESM resolution preserves the base URLs with `node`/`import` export conditions.
  * @param binName - the diagnostic prefix for load-failure errors.
  * @param absoluteConfigPath - the config to include; must already be absolute
  * (see {@link resolveConfigPath}).

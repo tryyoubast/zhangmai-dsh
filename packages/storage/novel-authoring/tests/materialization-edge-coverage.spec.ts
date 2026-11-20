@@ -125,7 +125,8 @@ describe('materialization untrusted fields and proposal payloads', () => {
       { type: 'chapter_versions', chapter_ref: 'chapter', version_no: 2, content_sha256: 'hash', content_bytes: 12, content_storage_kind: 'object_storage', content_object_key: 'chapter/object', clientKey: 'version' },
       ...['detailed', 'facts'].map(summaryKind => ({ type: 'chapter_summaries', chapter_ref: 'chapter', chapter_version_ref: 'version', summary_kind: summaryKind, content_text: 'Arrival', content_sha256: 'hash' })),
     ]))
-    expect(writer.createChapterVersionDraft).toHaveBeenCalledWith(expect.objectContaining({ chapterId: 'target', contentObjectKey: 'chapter/object', contentText: null }))
+    expect(writer.createChapterVersionDraft).toHaveBeenCalledWith(expect.objectContaining({ chapterId: 'target', contentObjectKey: 'chapter/object' }))
+    expect(writer.createChapterVersionDraft.mock.calls[0]?.[0]).not.toHaveProperty('contentText')
     expect(writer.createChapterSummaryDraft.mock.calls.map(([input]) => input)).toEqual([
       expect.objectContaining({ chapterId: 'target', chapterVersionId: 'target', summaryKind: 'detailed' }),
       expect.objectContaining({ chapterId: 'target', chapterVersionId: 'target', summaryKind: 'facts' }),

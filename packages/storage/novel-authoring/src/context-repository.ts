@@ -17,7 +17,7 @@ type ContextRow = {
   source_type: string
   source_id: string
   status: string
-  updated_at: Date
+  updated_at: Date | string
   relevance_score: number
   excerpt: string
 }
@@ -33,6 +33,9 @@ function tokenCount(excerpt: string): number {
 
 function candidate(row: ContextRow, workspaceId: string, novelId: string): ContextCandidate {
   const excerpt = Buffer.from(row.excerpt, 'utf8').subarray(0, MAX_EXCERPT_BYTES).toString('utf8')
+  // Raw SQL bypasses Drizzle's column decoder and can return timestamptz as text.
+  const recencyScore = new Date(row.updated_at).getTime()
+  if (!Number.isFinite(recencyScore)) throw new Error('Context source timestamp must be finite')
   return {
     workspaceId,
     novelId,
@@ -40,7 +43,7 @@ function candidate(row: ContextRow, workspaceId: string, novelId: string): Conte
     sourceId: row.source_id,
     status: row.status === 'published' ? 'published' : 'draft',
     relevanceScore: row.relevance_score,
-    recencyScore: row.updated_at.getTime(),
+    recencyScore,
     excerptHash: excerptHash(excerpt),
     tokenCount: tokenCount(excerpt),
     selectionReason: 'workspace_novel_context',
@@ -61,8 +64,8 @@ export class PostgresNovelContextRepository implements PersistedContextCandidate
   async findCandidates(query: ContextCandidateQuery): Promise<readonly ContextCandidate[]> {
     this.assertScope(query.workspaceId, query.novelId)
     return withRequestContext(this.database, this.context(), async (db) => {
-      const textQuery = sql`plainto_tsquery('simple', ${query.instruction})`
-      const result = await db.execute(sql`
+      const findRows = async (textQuery: ReturnType<typeof sql>): Promise<ContextRow[]> => {
+        const result = await db.execute(sql`
         WITH sources AS (
           SELECT 'outline'::text AS source_type, id AS source_id, status, updated_at,
             left(title || E'\\n' || content_jsonb::text, 16384) AS excerpt
@@ -161,14 +164,22 @@ export class PostgresNovelContextRepository implements PersistedContextCandidate
               AND to_tsvector('simple', left(relation_type || E'\\n' || attributes_jsonb::text, 16384)) @@ ${textQuery}
         )
         SELECT source_type, source_id::text, status, updated_at,
-          ts_rank(to_tsvector('simple', coalesce(excerpt, '')), plainto_tsquery('simple', ${query.instruction})) AS relevance_score,
+          ts_rank(to_tsvector('simple', coalesce(excerpt, '')), ${textQuery}) AS relevance_score,
           excerpt
         FROM sources
         WHERE status NOT IN ('archived', 'deleted')
         ORDER BY relevance_score DESC, (status = 'published') DESC, updated_at DESC
         LIMIT ${MAX_CANDIDATES}
-      `)
-      return (result.rows as unknown as ContextRow[]).map(row => candidate(row, query.workspaceId, query.novelId))
+        `)
+        return result.rows as unknown as ContextRow[]
+      }
+      const strictRows = await findRows(sql`plainto_tsquery('simple', ${query.instruction})`)
+      // Preserve strict matches; only an empty visible result permits matching any normalized lexeme.
+      const rows = strictRows.length > 0 ? strictRows : await findRows(sql`(
+        SELECT coalesce(string_agg(quote_literal(lexeme), ' | '), '')::tsquery
+        FROM unnest(tsvector_to_array(to_tsvector('simple', ${query.instruction}))) AS normalized(lexeme)
+      )`)
+      return rows.map(row => candidate(row, query.workspaceId, query.novelId))
     })
   }
 

@@ -726,6 +726,39 @@ jobs:
       - name: Run real refresh token concurrency regressions
         run: pnpm run test:postgres
 
+  local-staging:
+    name: local staging / HTTPS acceptance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm-${{ github.run_id }}-${{ github.run_attempt }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+      - name: Initialize isolated staging credentials
+        run: pnpm run staging:init
+      - name: Build and start isolated staging profiles
+        run: pnpm run staging:up
+      - name: Run keyless HTTPS acceptance and PostgreSQL regressions
+        run: pnpm run staging:test
+      - name: Preserve sanitized acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: local-staging-evidence
+          path: deploy/local-test/.local/evidence/
+          if-no-files-found: warn
+      - name: Stop staging services and preserve volumes
+        if: always()
+        run: pnpm run staging:down
+
   # Single stable required check for branch protection: require "all checks
   # passed" instead of enumerating matrix legs whose names change as lanes and
   # node versions evolve. Every blocking job in THIS workflow must be listed in
@@ -751,7 +784,7 @@ jobs:
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
           || 'ubuntu-24.04' }}
-    needs: [node-24, node-24-coverage, node-24-bench, node-24-consumers, node-compat, python-sdk, python-runtime, windows-build, windows-native-tests, postgres-refresh]
+    needs: [node-24, node-24-coverage, node-24-bench, node-24-consumers, node-compat, python-sdk, python-runtime, windows-build, windows-native-tests, postgres-refresh, local-staging]
     if: ${{ !cancelled() && github.event_name == 'pull_request' }}
     steps:
       - name: Fail if any needed job did not succeed

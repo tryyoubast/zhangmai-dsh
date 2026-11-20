@@ -1,0 +1,52 @@
+# Standalone application layer for custom startup-only novel-api/novel-worker profiles.
+- insert:
+    - id: novel-host
+      name: '@deepseek-ai/dsh-novel-host'
+      config:
+        mode: !!js process.env.DSH_NOVEL_MODE
+        secretDirectory: !!js process.env.DSH_NOVEL_SECRET_DIRECTORY ?? '/run/secrets'
+        origin: !!js process.env.DSH_NOVEL_ORIGIN ?? 'https://localhost:8443'
+        database:
+          host: !!js process.env.DSH_NOVEL_DATABASE_HOST ?? 'postgres'
+          port: !!js Number(process.env.DSH_NOVEL_DATABASE_PORT ?? 5432)
+          name: !!js process.env.DSH_NOVEL_DATABASE_NAME ?? 'dsh_staging_test'
+          authUser: !!js process.env.DSH_NOVEL_DATABASE_AUTH_USER ?? 'staging_auth'
+          appUser: !!js process.env.DSH_NOVEL_DATABASE_APP_USER ?? 'staging_app'
+          serviceUser: !!js process.env.DSH_NOVEL_DATABASE_SERVICE_USER ?? 'staging_service'
+          workerUser: !!js process.env.DSH_NOVEL_DATABASE_WORKER_USER ?? 'staging_worker'
+          maxConnections: !!js Number(process.env.DSH_NOVEL_DATABASE_MAX_CONNECTIONS ?? 8)
+          idleTimeoutMs: !!js Number(process.env.DSH_NOVEL_DATABASE_IDLE_TIMEOUT_MS ?? 30000)
+          connectionTimeoutMs: !!js Number(process.env.DSH_NOVEL_DATABASE_CONNECTION_TIMEOUT_MS ?? 5000)
+        redis:
+          host: !!js process.env.DSH_NOVEL_REDIS_HOST ?? 'redis'
+          port: !!js Number(process.env.DSH_NOVEL_REDIS_PORT ?? 6379)
+          stream: !!js process.env.DSH_NOVEL_REDIS_STREAM ?? 'dsh:novel:generation'
+          group: !!js process.env.DSH_NOVEL_REDIS_GROUP ?? 'novel-workers'
+          blockMs: !!js Number(process.env.DSH_NOVEL_REDIS_BLOCK_MS ?? 1000)
+          retryMs: !!js Number(process.env.DSH_NOVEL_REDIS_RETRY_MS ?? 1000)
+          commandTimeoutMs: !!js Number(process.env.DSH_NOVEL_REDIS_COMMAND_TIMEOUT_MS ?? 5000)
+          connectTimeoutMs: !!js Number(process.env.DSH_NOVEL_REDIS_CONNECT_TIMEOUT_MS ?? 5000)
+        smtp:
+          host: !!js process.env.DSH_NOVEL_SMTP_HOST ?? 'mailpit'
+          port: !!js Number(process.env.DSH_NOVEL_SMTP_PORT ?? 1025)
+          from: !!js process.env.DSH_NOVEL_SMTP_FROM ?? 'noreply@dsh.local'
+          timeoutMs: !!js Number(process.env.DSH_NOVEL_SMTP_TIMEOUT_MS ?? 5000)
+        server:
+          host: !!js process.env.DSH_NOVEL_SERVER_HOST ?? '0.0.0.0'
+          port: !!js Number(process.env.DSH_NOVEL_SERVER_PORT ?? 8080)
+          maxBodyBytes: !!js Number(process.env.DSH_NOVEL_MAX_BODY_BYTES ?? 65536)
+        provider:
+          url: !!js process.env.DSH_NOVEL_PROVIDER_URL ?? 'https://api.deepseek.com/v1'
+          model: !!js process.env.DSH_NOVEL_PROVIDER_MODEL ?? 'deepseek-chat'
+          timeoutMs: !!js Number(process.env.DSH_NOVEL_PROVIDER_TIMEOUT_MS ?? 120000)
+          maxContextExcerptChars: !!js Number(process.env.DSH_NOVEL_PROVIDER_MAX_CONTEXT_EXCERPT_CHARS ?? 8000)
+        auth:
+          issuer: !!js process.env.DSH_NOVEL_AUTH_ISSUER ?? 'dsh-novel'
+          audience: !!js process.env.DSH_NOVEL_AUTH_AUDIENCE ?? 'dsh-novel-official'
+          accessTtlSeconds: !!js Number(process.env.DSH_NOVEL_AUTH_ACCESS_TTL_SECONDS ?? 900)
+          refreshTtlMs: !!js Number(process.env.DSH_NOVEL_AUTH_REFRESH_TTL_MS ?? 2592000000)
+          verificationTtlMs: !!js Number(process.env.DSH_NOVEL_AUTH_VERIFICATION_TTL_MS ?? 86400000)
+          resetTtlMs: !!js Number(process.env.DSH_NOVEL_AUTH_RESET_TTL_MS ?? 3600000)
+          sessionTtlMs: !!js Number(process.env.DSH_NOVEL_AUTH_SESSION_TTL_MS ?? 2592000000)
+          failedLoginThreshold: !!js Number(process.env.DSH_NOVEL_AUTH_FAILED_LOGIN_THRESHOLD ?? 10)
+          lockDurationMs: !!js Number(process.env.DSH_NOVEL_AUTH_LOCK_DURATION_MS ?? 900000)

@@ -217,7 +217,8 @@ export const characterVersions = novelSchema.table('character_versions', {
   characterId: uuid('character_id').notNull(),
   ...draftVersionColumns(),
 }, table => [
-  uniqueIndex('character_versions_character_no_idx').on(table.characterId, table.versionNo),
+  uniqueIndex('character_versions_history_no_idx').on(table.workspaceId, table.characterId, table.versionNo).where(sql`${table.status} <> 'draft'`),
+  uniqueIndex('character_versions_proposal_idx').on(table.workspaceId, table.sourceId).where(sql`${table.sourceType} = 'generation_proposal'`),
   uniqueIndex('character_versions_workspace_idempotency_idx').on(table.workspaceId, table.sourceIdempotencyKey),
   index('character_versions_workspace_idx').on(table.workspaceId),
   foreignKey({
@@ -230,6 +231,7 @@ export const characterVersions = novelSchema.table('character_versions', {
     columns: [table.workspaceId, table.novelId, table.sourceGenerationRunId],
     foreignColumns: [generationRuns.workspaceId, generationRuns.novelId, generationRuns.id],
   }),
+  check('character_versions_proposal_source_check', sql`${table.sourceType} <> 'generation_proposal' OR ${table.sourceId} IS NOT NULL`),
   check('character_versions_status_check', sql`${table.status} IN ('draft', 'published', 'archived', 'deleted')`),
 ])
 
@@ -262,7 +264,8 @@ export const skillVersions = novelSchema.table('skill_versions', {
   skillId: uuid('skill_id').notNull(),
   ...draftVersionColumns(),
 }, table => [
-  uniqueIndex('skill_versions_skill_no_idx').on(table.skillId, table.versionNo),
+  uniqueIndex('skill_versions_history_no_idx').on(table.workspaceId, table.skillId, table.versionNo).where(sql`${table.status} <> 'draft'`),
+  uniqueIndex('skill_versions_proposal_idx').on(table.workspaceId, table.sourceId).where(sql`${table.sourceType} = 'generation_proposal'`),
   uniqueIndex('skill_versions_workspace_idempotency_idx').on(table.workspaceId, table.sourceIdempotencyKey),
   index('skill_versions_workspace_idx').on(table.workspaceId),
   foreignKey({
@@ -275,6 +278,7 @@ export const skillVersions = novelSchema.table('skill_versions', {
     columns: [table.workspaceId, table.novelId, table.sourceGenerationRunId],
     foreignColumns: [generationRuns.workspaceId, generationRuns.novelId, generationRuns.id],
   }),
+  check('skill_versions_proposal_source_check', sql`${table.sourceType} <> 'generation_proposal' OR ${table.sourceId} IS NOT NULL`),
   check('skill_versions_status_check', sql`${table.status} IN ('draft', 'published', 'archived', 'deleted')`),
 ])
 
@@ -374,7 +378,8 @@ export const locationVersions = novelSchema.table('location_versions', {
   locationId: uuid('location_id').notNull(),
   ...draftVersionColumns(),
 }, table => [
-  uniqueIndex('location_versions_workspace_entity_no_idx').on(table.workspaceId, table.locationId, table.versionNo),
+  uniqueIndex('location_versions_history_no_idx').on(table.workspaceId, table.locationId, table.versionNo).where(sql`${table.status} <> 'draft'`),
+  uniqueIndex('location_versions_proposal_idx').on(table.workspaceId, table.sourceId).where(sql`${table.sourceType} = 'generation_proposal'`),
   uniqueIndex('location_versions_workspace_idempotency_idx').on(table.workspaceId, table.sourceIdempotencyKey),
   foreignKey({
     name: 'location_versions_workspace_novel_location_fkey',
@@ -386,6 +391,7 @@ export const locationVersions = novelSchema.table('location_versions', {
     columns: [table.workspaceId, table.novelId, table.sourceGenerationRunId],
     foreignColumns: [generationRuns.workspaceId, generationRuns.novelId, generationRuns.id],
   }),
+  check('location_versions_proposal_source_check', sql`${table.sourceType} <> 'generation_proposal' OR ${table.sourceId} IS NOT NULL`),
   check('location_versions_status_check', sql`${table.status} IN ('draft', 'published', 'archived', 'deleted')`),
 ])
 
@@ -397,7 +403,8 @@ export const factionVersions = novelSchema.table('faction_versions', {
   factionId: uuid('faction_id').notNull(),
   ...draftVersionColumns(),
 }, table => [
-  uniqueIndex('faction_versions_workspace_entity_no_idx').on(table.workspaceId, table.factionId, table.versionNo),
+  uniqueIndex('faction_versions_history_no_idx').on(table.workspaceId, table.factionId, table.versionNo).where(sql`${table.status} <> 'draft'`),
+  uniqueIndex('faction_versions_proposal_idx').on(table.workspaceId, table.sourceId).where(sql`${table.sourceType} = 'generation_proposal'`),
   uniqueIndex('faction_versions_workspace_idempotency_idx').on(table.workspaceId, table.sourceIdempotencyKey),
   foreignKey({
     name: 'faction_versions_workspace_novel_faction_fkey',
@@ -409,6 +416,7 @@ export const factionVersions = novelSchema.table('faction_versions', {
     columns: [table.workspaceId, table.novelId, table.sourceGenerationRunId],
     foreignColumns: [generationRuns.workspaceId, generationRuns.novelId, generationRuns.id],
   }),
+  check('faction_versions_proposal_source_check', sql`${table.sourceType} <> 'generation_proposal' OR ${table.sourceId} IS NOT NULL`),
   check('faction_versions_status_check', sql`${table.status} IN ('draft', 'published', 'archived', 'deleted')`),
 ])
 
@@ -420,7 +428,8 @@ export const itemVersions = novelSchema.table('item_versions', {
   itemId: uuid('item_id').notNull(),
   ...draftVersionColumns(),
 }, table => [
-  uniqueIndex('item_versions_workspace_entity_no_idx').on(table.workspaceId, table.itemId, table.versionNo),
+  uniqueIndex('item_versions_history_no_idx').on(table.workspaceId, table.itemId, table.versionNo).where(sql`${table.status} <> 'draft'`),
+  uniqueIndex('item_versions_proposal_idx').on(table.workspaceId, table.sourceId).where(sql`${table.sourceType} = 'generation_proposal'`),
   uniqueIndex('item_versions_workspace_idempotency_idx').on(table.workspaceId, table.sourceIdempotencyKey),
   foreignKey({
     name: 'item_versions_workspace_novel_item_fkey',
@@ -432,6 +441,7 @@ export const itemVersions = novelSchema.table('item_versions', {
     columns: [table.workspaceId, table.novelId, table.sourceGenerationRunId],
     foreignColumns: [generationRuns.workspaceId, generationRuns.novelId, generationRuns.id],
   }),
+  check('item_versions_proposal_source_check', sql`${table.sourceType} <> 'generation_proposal' OR ${table.sourceId} IS NOT NULL`),
   check('item_versions_status_check', sql`${table.status} IN ('draft', 'published', 'archived', 'deleted')`),
 ])
 
@@ -443,7 +453,8 @@ export const storylineVersions = novelSchema.table('storyline_versions', {
   storylineId: uuid('storyline_id').notNull(),
   ...draftVersionColumns(),
 }, table => [
-  uniqueIndex('storyline_versions_workspace_entity_no_idx').on(table.workspaceId, table.storylineId, table.versionNo),
+  uniqueIndex('storyline_versions_history_no_idx').on(table.workspaceId, table.storylineId, table.versionNo).where(sql`${table.status} <> 'draft'`),
+  uniqueIndex('storyline_versions_proposal_idx').on(table.workspaceId, table.sourceId).where(sql`${table.sourceType} = 'generation_proposal'`),
   uniqueIndex('storyline_versions_workspace_idempotency_idx').on(table.workspaceId, table.sourceIdempotencyKey),
   foreignKey({
     name: 'storyline_versions_workspace_novel_storyline_fkey',
@@ -455,6 +466,7 @@ export const storylineVersions = novelSchema.table('storyline_versions', {
     columns: [table.workspaceId, table.novelId, table.sourceGenerationRunId],
     foreignColumns: [generationRuns.workspaceId, generationRuns.novelId, generationRuns.id],
   }),
+  check('storyline_versions_proposal_source_check', sql`${table.sourceType} <> 'generation_proposal' OR ${table.sourceId} IS NOT NULL`),
   check('storyline_versions_status_check', sql`${table.status} IN ('draft', 'published', 'archived', 'deleted')`),
 ])
 
@@ -466,8 +478,8 @@ export const entityRelationVersions = novelSchema.table('entity_relation_version
   relationId: uuid('relation_id').notNull(),
   ...draftVersionColumns(),
 }, table => [
-  uniqueIndex('entity_relation_versions_workspace_entity_no_idx')
-    .on(table.workspaceId, table.relationId, table.versionNo),
+  uniqueIndex('entity_relation_versions_history_no_idx').on(table.workspaceId, table.relationId, table.versionNo).where(sql`${table.status} <> 'draft'`),
+  uniqueIndex('entity_relation_versions_proposal_idx').on(table.workspaceId, table.sourceId).where(sql`${table.sourceType} = 'generation_proposal'`),
   uniqueIndex('entity_relation_versions_workspace_idempotency_idx').on(table.workspaceId, table.sourceIdempotencyKey),
   foreignKey({
     name: 'entity_relation_versions_workspace_novel_relation_fkey',
@@ -479,6 +491,7 @@ export const entityRelationVersions = novelSchema.table('entity_relation_version
     columns: [table.workspaceId, table.novelId, table.sourceGenerationRunId],
     foreignColumns: [generationRuns.workspaceId, generationRuns.novelId, generationRuns.id],
   }),
+  check('entity_relation_versions_proposal_source_check', sql`${table.sourceType} <> 'generation_proposal' OR ${table.sourceId} IS NOT NULL`),
   check('entity_relation_versions_status_check', sql`${table.status} IN ('draft', 'published', 'archived', 'deleted')`),
 ])
 
@@ -526,8 +539,10 @@ export const characterSkillVersions = novelSchema.table('character_skill_version
   characterSkillId: uuid('character_skill_id').notNull(),
   ...draftVersionColumns(),
 }, table => [
-  unique('character_skill_versions_workspace_entity_version_key')
-    .on(table.workspaceId, table.characterSkillId, table.versionNo),
+  uniqueIndex('character_skill_versions_history_no_idx')
+    .on(table.workspaceId, table.characterSkillId, table.versionNo).where(sql`${table.status} <> 'draft'`),
+  uniqueIndex('character_skill_versions_proposal_idx')
+    .on(table.workspaceId, table.sourceId).where(sql`${table.sourceType} = 'generation_proposal'`),
   index('character_skill_versions_workspace_entity_idx')
     .on(table.workspaceId, table.novelId, table.characterSkillId, table.versionNo.desc()),
   uniqueIndex('character_skill_versions_workspace_idempotency_idx')
@@ -543,6 +558,7 @@ export const characterSkillVersions = novelSchema.table('character_skill_version
     foreignColumns: [generationRuns.workspaceId, generationRuns.novelId, generationRuns.id],
   }),
   check('character_skill_versions_version_no_check', sql`${table.versionNo} > 0`),
+  check('character_skill_versions_proposal_source_check', sql`${table.sourceType} <> 'generation_proposal' OR ${table.sourceId} IS NOT NULL`),
   check('character_skill_versions_status_check', sql`${table.status} IN ('draft', 'published', 'archived', 'deleted')`),
 ])
 

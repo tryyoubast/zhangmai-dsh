@@ -1,0 +1,14 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": "src", "outDir": "lib/types" },
+  "include": ["src"],
+  "references": [
+    { "path": "../../../vendor/cordis" },
+    { "path": "../../../vendor/schemastery" },
+    { "path": "../../api/novel-authoring-http" },
+    { "path": "../../database/database-postgres" },
+    { "path": "../webserver" },
+    { "path": "../../storage/novel-authoring" },
+    { "path": "../../identity/user-auth" }
+  ]
+}
