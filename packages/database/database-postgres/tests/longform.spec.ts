@@ -68,7 +68,7 @@ describe('long-form novel persistence migration', () => {
       entries: Array<{ tag: string }>
     }
     expect(journal.entries.some(entry => entry.tag === '0012_generation_context_snapshots')).toBe(true)
-    expect(journal.entries.at(-1)?.tag).toBe('0014_novel_context_fulltext_indexes')
+    expect(journal.entries.some(entry => entry.tag === '0014_novel_context_fulltext_indexes')).toBe(true)
   })
 
   it('keeps composite chapter references enforceable', () => {

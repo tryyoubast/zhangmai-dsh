@@ -1,5 +1,10 @@
 /** Persist workspace-scoped novel drafts and review state; PostgreSQL owns publication and RLS enforcement. */
+export { PostgresWorkspaceIdentity } from './workspace-identity.ts'
+export { PostgresGenerationWorkerIdentity, type GenerationWorkerIdentity } from './worker-identity.ts'
+export { ProposalOperationError, type ProposalOperationErrorKind } from './proposal-error.ts'
+import { ProposalOperationError } from './proposal-error.ts'
 import { persistedContextCandidate } from './context-candidate.ts'
+import { randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import {
   and,
@@ -125,7 +130,7 @@ export interface GenerationRunInput {
   readonly contextLimit?: number
 }
 
-/** Complete queued request reconstructed by an authenticated generation worker. */
+/** Durable request returned after a worker atomically claims its queued run and advances it to running. */
 export interface QueuedGenerationRequest extends GenerationRunInput {
   readonly generationRunId: string
   readonly instruction: string
@@ -134,6 +139,21 @@ export interface QueuedGenerationRequest extends GenerationRunInput {
 
 /** States persisted for one AI generation task. */
 export type GenerationRunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+
+/** Reviewable proposal locator exposed with its generation run; content and diagnostics are excluded. */
+export interface GenerationRunProposal {
+  readonly id: string
+  readonly targetType: NovelDraftTargetType
+  readonly targetId: string | null
+  readonly status: ProposalStatus
+}
+
+/** Safe durable run state for authenticated polling and worker completion inspection. */
+export interface GenerationRunView {
+  readonly runId: string
+  readonly status: GenerationRunStatus
+  readonly proposals: readonly GenerationRunProposal[]
+}
 
 /**
  * Reject generation lifecycle transitions disallowed by the database state machine.
@@ -323,6 +343,7 @@ export class NovelAuthoringService {
    * Create a queued generation run under the current workspace and actor context.
    * @param input - Run identity and model settings; omitted context limit defaults to eight.
    * @returns The new run ID, or the ID already bound to an identical idempotent request.
+   * Human retries retain the same ID after worker assignment; agent retries must match their own assignment.
    * @throws For a supplied blank instruction or a context limit outside integer range 0–128.
    */
   async createGenerationRun(input: GenerationRunInput): Promise<string> {
@@ -357,7 +378,7 @@ export class NovelAuthoringService {
         workspaceId: input.workspaceId,
         novelId: input.novelId,
         initiatedByUserId: this.principal.userId,
-        agentPrincipalId: this.principal.agentPrincipalId ?? 'user-request',
+        ...(this.principal.actorType === 'agent' ? { agentPrincipalId: this.principal.agentPrincipalId } : {}),
         model: input.model,
         promptVersion: input.promptVersion,
         sourceSessionId: input.sourceSessionId,
@@ -368,10 +389,12 @@ export class NovelAuthoringService {
   }
 
   /**
-   * Claim a queued run for this worker and load its durable request in one transaction.
+   * Lock a queued run, bind this worker, and advance it to running in one RLS transaction.
+   * Concurrent deliveries for the same run serialize on its row lock; only the first may execute.
    * @param input - Workspace and generation run to claim.
-   * @returns The claimed request, including its saved instruction and context limit.
-   * @throws When the run is missing, unavailable to this worker, or has no saved instruction.
+   * @returns The saved instruction and context limit after the running transition commits.
+   * @throws When the run is missing, no longer queued, unavailable to this worker, or has no saved instruction.
+   * All writes roll back on rejection.
    */
   async getQueuedGenerationRequest(input: {
     readonly workspaceId: string
@@ -380,11 +403,14 @@ export class NovelAuthoringService {
     assertGenerationWorker(this.principal)
     if (input.workspaceId !== this.principal.workspaceId) throw new Error('workspace context mismatch')
     return this.withContext(async (db) => {
-      const [candidate] = await db.select({ novelId: generationRuns.novelId }).from(generationRuns).where(and(
+      const [candidate] = await db.select({
+        novelId: generationRuns.novelId, status: generationRuns.status,
+      }).from(generationRuns).where(and(
         eq(generationRuns.workspaceId, input.workspaceId),
         eq(generationRuns.id, input.generationRunId),
-      )).limit(1)
+      )).limit(1).for('update')
       if (candidate === undefined) throw new Error('generation run was not found')
+      if (candidate.status !== 'queued') throw new Error('generation run is already claimed or unavailable')
       const claim = await db.execute(sql`SELECT ai.claim_generation_run(
         ${input.workspaceId}::uuid, ${candidate.novelId}::uuid, ${input.generationRunId}::uuid
       ) AS claimed`)
@@ -395,6 +421,10 @@ export class NovelAuthoringService {
       )).limit(1)
       if (run === undefined) throw new Error('generation run was not found')
       if (run.instruction.trim() === '') throw new Error('queued generation instruction is missing')
+      await db.update(generationRuns).set({ status: 'running', heartbeatAt: new Date(), completedAt: null }).where(and(
+        eq(generationRuns.workspaceId, input.workspaceId),
+        eq(generationRuns.id, input.generationRunId),
+      ))
       return {
         workspaceId: run.workspaceId,
         novelId: run.novelId,
@@ -433,6 +463,45 @@ export class NovelAuthoringService {
   }
 
   /**
+   * Read run state and associated proposal locators under the caller's RLS context.
+   * @param input - Workspace, novel, and run that must all match the visible persisted row.
+   * @returns Safe status and proposal fields, or undefined for a missing or invisible run; prompts and diagnostics are excluded.
+   * @throws For a workspace mismatch or database failure.
+   */
+  async getGenerationRun(input: {
+    readonly workspaceId: string
+    readonly novelId: string
+    readonly generationRunId: string
+  }): Promise<GenerationRunView | undefined> {
+    assertWorkspace(this.principal, input.workspaceId)
+    return this.withContext(async (db) => {
+      const [run] = await db.select({ runId: generationRuns.id, status: generationRuns.status }).from(generationRuns).where(and(
+        eq(generationRuns.workspaceId, input.workspaceId),
+        eq(generationRuns.novelId, input.novelId),
+        eq(generationRuns.id, input.generationRunId),
+      )).limit(1)
+      if (run === undefined) return undefined
+      const proposals = await db.select({
+        id: generationProposals.id,
+        targetType: generationProposals.targetType,
+        targetId: generationProposals.targetId,
+        status: generationProposals.status,
+      }).from(generationProposals).where(and(
+        eq(generationProposals.workspaceId, input.workspaceId),
+        eq(generationProposals.novelId, input.novelId),
+        eq(generationProposals.generationRunId, input.generationRunId),
+      )).orderBy(asc(generationProposals.id))
+      return {
+        runId: run.runId,
+        status: run.status as GenerationRunStatus,
+        proposals: proposals.map(proposal => ({
+          ...proposal, targetType: proposal.targetType as NovelDraftTargetType, status: proposal.status as ProposalStatus,
+        })),
+      }
+    })
+  }
+
+  /**
    * Advance a generation run without changing worker-owned request inputs.
    * @param input - Run identity, next status, and optional heartbeat or terminal diagnostics.
    * @throws When the run is missing, the transition is forbidden, or the error summary exceeds 512 characters.
@@ -467,10 +536,11 @@ export class NovelAuthoringService {
   }
 
   /**
-   * Persist a draft proposal without publishing its generated content.
+   * Persist a draft proposal and its proposal-bound entity candidate in one transaction.
+   * PostgreSQL creates candidates for the eight versioned entity types; other draft targets keep their own storage.
    * @param input - Target, generated payload, validation results, and workspace-scoped retry key.
    * @returns The new proposal ID or an existing ID for an identical retry.
-   * @throws When an update has no positive base version or its retry payload differs.
+   * @throws When an update has no positive base version, candidate validation fails, or its retry payload differs.
    */
   async createDraftProposal(input: DraftProposalInput): Promise<string> {
     assertGenerationWorker(this.principal)
@@ -915,17 +985,15 @@ export class ProposalReviewService {
   /**
    * Bind a draft proposal with no target to the draft record it created.
    * @param input - Current workspace, proposal ID, and target record ID.
-   * @throws When the caller lacks editor permission or the visible proposal is not an unbound draft.
+   * Binding locks the proposal; PostgreSQL creates its versioned candidate before the transaction commits.
+   * @throws When the caller lacks editor permission or the visible proposal is not an unbound create draft.
    */
   async bindTarget(input: { readonly workspaceId: string; readonly proposalId: string; readonly targetId: string }): Promise<void> {
     this.assertUser()
     if (input.workspaceId !== this.principal.workspaceId) throw new Error('workspace context mismatch')
     if (!canPerform(this.principal, 'content:write')) throw new Error('editor permission is required')
     await withRequestContext(this.database, this.context(), async (db) => {
-      const [proposal] = await db.select({ status: generationProposals.status, targetId: generationProposals.targetId })
-        .from(generationProposals)
-        .where(and(eq(generationProposals.workspaceId, input.workspaceId), eq(generationProposals.id, input.proposalId)))
-        .limit(1)
+      const proposal = await this.lockProposal(db, input)
       if (proposal === undefined || proposal.status !== 'draft' || proposal.targetId !== null) {
         throw new Error('proposal target cannot be bound')
       }
@@ -954,10 +1022,7 @@ export class ProposalReviewService {
       throw new Error('editor permission is required')
     }
     await withRequestContext(this.database, this.context(), async (db) => {
-      const [proposal] = await db.select({ status: generationProposals.status, targetId: generationProposals.targetId })
-        .from(generationProposals)
-        .where(and(eq(generationProposals.workspaceId, input.workspaceId), eq(generationProposals.id, input.proposalId)))
-        .limit(1)
+      const proposal = await this.lockProposal(db, input)
       if (proposal === undefined) throw new Error('proposal was not found')
       assertProposalReviewTransition(proposal.status as ProposalStatus, input.decision, 'user')
       if (input.decision !== 'draft' && proposal.targetId === null) throw new Error('proposal target must be bound before review')
@@ -969,6 +1034,15 @@ export class ProposalReviewService {
         publishedAt: null,
       }).where(and(eq(generationProposals.workspaceId, input.workspaceId), eq(generationProposals.id, input.proposalId)))
     })
+  }
+
+  private async lockProposal(db: DshDatabase, input: { readonly workspaceId: string; readonly proposalId: string }) {
+    const [proposal] = await db.select({ status: generationProposals.status, targetId: generationProposals.targetId })
+      .from(generationProposals)
+      .where(and(eq(generationProposals.workspaceId, input.workspaceId), eq(generationProposals.id, input.proposalId)))
+      .limit(1)
+      .for('update')
+    return proposal
   }
 
   private context(): {
@@ -998,10 +1072,29 @@ export interface ProposalRollbackInput {
   readonly versionNo: number
 }
 
+function throwProposalDatabaseError(error: unknown): never {
+  const visited = new Set<object>()
+  let current = error
+  while (typeof current === 'object' && current !== null && !visited.has(current)) {
+    visited.add(current)
+    if ('code' in current) {
+      switch (current.code) {
+        case 'P2001': throw new ProposalOperationError('not_found', { cause: error })
+        case 'P2002': throw new ProposalOperationError('forbidden', { cause: error })
+        case 'P2003': throw new ProposalOperationError('conflict', { cause: error })
+        case 'P2004': throw new ProposalOperationError('invalid_request', { cause: error })
+      }
+    }
+    current = 'cause' in current ? current.cause : undefined
+  }
+  throw error
+}
+
 /**
  * Call database-owned publication and rollback procedures inside an owned RLS transaction.
  * Requires a human owner or administrator in the selected workspace and a service-role database client.
- * Permission, version, proposal-validation, and database failures reject without committing the operation.
+ * Expected business failures reject with ProposalOperationError; other database failures propagate.
+ * Failed publication and rollback leave versions, entity projections, proposals, and audit events uncommitted.
  */
 export class ProposalPublicationService {
   constructor(
@@ -1012,35 +1105,46 @@ export class ProposalPublicationService {
   /**
    * Publish a reviewed proposal through the restricted service database role.
    * @param input - Current workspace and approved proposal to publish atomically with its audit event.
+   * @throws ProposalOperationError for a missing target, permission denial, stale candidate, or invalid request; database faults propagate.
    */
   async publish(input: ProposalPublicationInput): Promise<void> {
     this.assertReviewer(input.workspaceId)
-    await withRequestContext(this.database, this.context(), async (db) => {
-      await db.execute(sql`SELECT ai.publish_generation_proposal(${input.workspaceId}::uuid, ${input.proposalId}::uuid)`)
-    })
+    if (!isPublicationId(input.proposalId)) throw new ProposalOperationError('invalid_request')
+    try {
+      await withRequestContext(this.database, this.context(), async (db) => {
+        await db.execute(sql`SELECT ai.publish_generation_proposal(${input.workspaceId}::uuid, ${input.proposalId}::uuid)`)
+      })
+    } catch (error) {
+      throwProposalDatabaseError(error)
+    }
   }
 
   /**
    * Restore a prior version through the database procedure that also records an audit event.
    * @param input - Current workspace, supported target, and historical version to restore.
-   * @throws When the requested version is not a positive safe integer or the procedure rejects restoration.
+   * @throws ProposalOperationError for an invalid version, invisible target, permission denial, or conflict; database faults propagate.
    */
   async rollback(input: ProposalRollbackInput): Promise<void> {
     this.assertReviewer(input.workspaceId)
-    if (!Number.isSafeInteger(input.versionNo) || input.versionNo < 1) throw new Error('version number must be positive')
-    await withRequestContext(this.database, this.context(), async (db) => {
-      await db.execute(sql`SELECT ai.rollback_entity_version(
-        ${input.workspaceId}::uuid,
-        ${input.targetType},
-        ${input.targetId}::uuid,
-        ${input.versionNo}
-      )`)
-    })
+    if (!isPublicationId(input.targetId) || !Number.isInteger(input.versionNo)
+      || input.versionNo < 1 || input.versionNo > 2_147_483_647) throw new ProposalOperationError('invalid_request')
+    try {
+      await withRequestContext(this.database, this.context(), async (db) => {
+        await db.execute(sql`SELECT ai.rollback_entity_version(
+          ${input.workspaceId}::uuid,
+          ${input.targetType},
+          ${input.targetId}::uuid,
+          ${input.versionNo}
+        )`)
+      })
+    } catch (error) {
+      throwProposalDatabaseError(error)
+    }
   }
 
   private assertReviewer(workspaceId: string): void {
-    if (this.principal.actorType !== 'user' || workspaceId !== this.principal.workspaceId) throw new Error('workspace context mismatch')
-    if (!canPerform(this.principal, 'proposal:publish')) throw new Error('owner or administrator permission is required')
+    if (this.principal.actorType !== 'user' || workspaceId !== this.principal.workspaceId
+      || !canPerform(this.principal, 'proposal:publish')) throw new ProposalOperationError('forbidden')
   }
 
   private context(): {
@@ -1050,6 +1154,10 @@ export class ProposalPublicationService {
   } {
     return { userId: this.principal.userId, workspaceId: this.principal.workspaceId, actorType: 'user' }
   }
+}
+
+function isPublicationId(value: string): boolean {
+  return /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(value)
 }
 
 /** Input for creating a user-owned workspace. */
@@ -1085,18 +1193,21 @@ export class WorkspaceAuthoringService {
     this.assertUserActor()
     if (!input.name.trim()) throw new Error('workspace name is required')
     return withRequestContext(this.database, requestContext(this.principal), async (db) => {
-      const [workspace] = await db.insert(workspaces).values({
+      const workspaceId = randomUUID()
+      await db.execute(sql`SELECT set_config('app.workspace_id', ${workspaceId}, true)`)
+      // The new workspace is SELECT-visible only after its owner membership exists.
+      await db.insert(workspaces).values({
+        id: workspaceId,
         ownerUserId: this.principal.userId,
         name: input.name.trim(),
         status: 'active',
-      }).returning({ id: workspaces.id })
-      if (workspace === undefined) throw new Error('workspace was not created')
+      })
       await db.insert(workspaceMembers).values({
-        workspaceId: workspace.id,
+        workspaceId,
         userId: this.principal.userId,
         role: 'owner',
       })
-      return workspace.id
+      return workspaceId
     })
   }
 
@@ -1233,7 +1344,9 @@ export class WorkspaceAuthoringService {
     if (workspaceId !== this.principal.workspaceId) throw new Error('workspace context mismatch')
     if (!canPerform(this.principal, 'workspace:manage')) throw new Error('workspace administrator permission is required')
     await withRequestContext(this.database, requestContext(this.principal), async (db) => {
-      await db.update(workspaces).set({ status, updatedAt: new Date() }).where(eq(workspaces.id, workspaceId))
+      await db.update(workspaces).set({ status, updatedAt: new Date() }).where(and(
+        eq(workspaces.id, workspaceId), eq(workspaces.status, status === 'active' ? 'archived' : 'active'), isNull(workspaces.deletedAt),
+      ))
     })
   }
 

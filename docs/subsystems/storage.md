@@ -152,6 +152,68 @@ type DomainChanged = DomainChangedPut | DomainChangedDeleted
 
 `put` (inserts, overwrites, and global writes) carries the new snapshot in `value` — never the old value; a diffing consumer keeps its own previous snapshot. `deleted` is a tombstone with no value. The event is a notification, not a transaction participant: the commit point has passed at emission, so a synchronously throwing listener is contained with a logged warning rather than rejecting the already-durable write, and emitted values equal the in-memory state at emission. The event is in-process only; cross-process change push is a recorded limitation ([package README](../../packages/storage/storage-domain/README.md)).
 
+## Novel generation persistence
+
+[Novel authoring](../../packages/storage/novel-authoring/README.md) stores queued requests, reviewable draft targets, generation context, and proposal state under workspace RLS. A claimed request commits running state before provider execution; `executeQueued()` consumes that saved request without creating another run. Polling returns only run/proposal locators and state, while the [worker identity resolver](../../packages/storage/novel-authoring/src/worker-identity.ts) rechecks the source session and current membership. The [host](../../packages/host/novel-host/README.md) owns Redis notification and recovery.
+
+If authorization becomes unavailable while a queue delivery is pending, the worker uses the database's restricted settlement function to recheck authority under the run lock. Still-valid requests remain retryable; requests whose source session or membership is no longer valid are marked failed with their lifecycle audit in one transaction. Archived workspaces can be restored only by an explicit restore action from a current owner or admin; ordinary authoring still requires active membership.
+
+Publication and rollback expose `ProposalOperationError` with a safe `kind`; the original database error remains its internal cause. Only the four dedicated business SQLSTATE values are classified. Other database failures propagate to the host as service faults.
+
+Database publication guards require the proposal, reviewed content, published target, and exact versioned candidate to agree. A stale competing proposal remains a conflict instead of gaining a published state or emitting a successful publication audit.
+
+```ts type-equiv
+/** Caller-visible failures; infrastructure and unexpected database errors remain unclassified. */
+type ProposalOperationErrorKind = 'not_found' | 'forbidden' | 'conflict' | 'invalid_request'
+```
+
+```ts type-equiv
+/** Durable request returned after a worker atomically claims its queued run and advances it to running. */
+interface QueuedGenerationRequest extends GenerationRunInput {
+  readonly generationRunId: string
+  readonly instruction: string
+  readonly contextLimit: number
+}
+```
+
+```ts type-equiv
+/** Reviewable proposal locator exposed with its generation run; content and diagnostics are excluded. */
+interface GenerationRunProposal {
+  readonly id: string
+  readonly targetType: NovelDraftTargetType
+  readonly targetId: string | null
+  readonly status: ProposalStatus
+}
+```
+
+```ts type-equiv
+/** Safe durable run state for authenticated polling and worker completion inspection. */
+interface GenerationRunView {
+  readonly runId: string
+  readonly status: GenerationRunStatus
+  readonly proposals: readonly GenerationRunProposal[]
+}
+```
+
+```ts type-equiv
+/** Current persisted authority and run state, without queued instruction text or authentication credentials. */
+interface GenerationWorkerIdentity {
+  readonly principal: AuthPrincipal
+  readonly novelId: string
+  readonly status: GenerationRunStatus
+}
+```
+
+```ts type-equiv
+/** Injected seams for coordinating run lifecycle, generation, and materialization. */
+interface NovelGenerationWorkflowDependencies {
+  readonly authoring: Pick<NovelAuthoringService, 'createGenerationRun' | 'updateGenerationRunStatus'> & Partial<Pick<NovelAuthoringService, 'getGenerationRunStatus' | 'getQueuedGenerationRequest'>>
+  readonly generation: Pick<LongformGenerationService, 'generate' | 'findPersistedResult'>
+  readonly enrichment?: NovelGenerationEnrichmentAdapter
+  readonly materialization: Pick<GenerationMaterializationService, 'materialize'>
+}
+```
+
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>

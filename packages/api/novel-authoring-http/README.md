@@ -53,13 +53,19 @@ The [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-api-n
 
 `apply()` registers the `/api` prefix and its disposer through the WebServer route registry. It does not claim the SPA fallback. `PlatformHttpController` delegates authentication and builds authoring services after resolving the principal; `NovelAuthoringHttpController` dispatches domain operations with that identity.
 
-Workspace and novel creation, member invitations/listing/role changes/revocation, ownership transfer, and archive/restore operations belong to authenticated domain services. Generation-run creation, worker-only generation and proposal materialization, review/publication, rollback, and persisted-context reads return business statuses for a Web UI. Browser principals can enqueue runs and review proposals but cannot invoke worker-only generation and proposal routes. Cookie/JWT parsing remains with the injected authentication services.
+Workspace and novel creation, member invitations/listing/role changes/revocation, ownership transfer, and archive/restore operations belong to authenticated domain services. Generation-run creation, worker-only generation and proposal materialization, review/publication, rollback, and persisted-context reads return business statuses for a Web UI. Browser principals can enqueue runs and review proposals but cannot invoke worker-only generation and proposal routes. Cookie/JWT parsing remains with the injected authentication services. Only a matching workspace restore action may resolve archived membership authority.
 
 The [implementation](src/index.ts) owns dispatch and response mapping; [Web adapter tests](tests/web-adapter.spec.ts) exercise bounded request handling, and [controller tests](tests/controller.spec.ts) exercise principal-based dispatch.
 
 Worker proposal requests require a supported fixed `targetType`. Missing, empty, or unsupported values return `400 invalid_request` before the authoring service is called, using the authoring library's shared type guard.
 
+When `allowedOrigin` is configured, state-changing business requests require that exact Origin before principal resolution. Browser generation routes persist the run before invoking optional `notifyGeneration`. A configured notification must succeed before `202`; failure returns only `503 {"error":"queue_unavailable"}`. Resubmitting the same idempotent body notifies the persisted run again. Invalid or conflicting requests never notify. GET generation-run reads return persisted progress without queue side effects.
+
 Route matching validates the segment count after removing empty path segments. Only matching routes supply workspace, novel, or proposal IDs to services; unmatched paths return `404 not_found`.
+
+Proposal review returns `404 {"error":"not_found"}` for both absent proposals and proposals invisible in the authenticated workspace. Review lookup rejects before writing. Permission errors return `403 forbidden`; unexpected failures return `500 authoring_unavailable` without raw exception details. The [review-response decision](../../../.agents/notes/implemented/bug-fix/2026-11-11-proposal-review-not-found.md) defines the exact domain-error mapping.
+
+Publication and rollback map the authoring library's `ProposalOperationError` to 404 `not_found`, 403 `forbidden`, 409 `conflict`, or 400 `invalid_request`. Unclassified failures return only 500 `authoring_unavailable`, including unexpected permission and transaction errors; database message text cannot turn those faults into a successful conflict response.
 
 No invariant companion is published because this stateless adapter validates requests and delegates persistence to its injected authoring services.
 

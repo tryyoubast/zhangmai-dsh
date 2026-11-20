@@ -94,11 +94,11 @@ describe('authoring HTTP validation and optional routes', () => {
   it('preserves explicit generation settings and applies defaults to missing settings', async () => {
     const deps = services()
     const controller = new NovelAuthoringHttpController(principal, deps)
-    for (const body of [generation, { ...generation, contextLimit: 0, model: 'model', promptVersion: 'v2', sourceSessionId: 'source' }]) {
+    for (const body of [generation, { ...generation, contextLimit: 0, model: 'model', promptVersion: 'v2', sourceSessionId: principal.sessionId }]) {
       expect((await controller.handle({ method: 'POST', path: '/api/novels/novel/generation-runs', body })).status).toBe(200)
     }
     expect(deps.authoring.createGenerationRun).toHaveBeenNthCalledWith(1, expect.objectContaining({ model: 'configured-provider', promptVersion: 'v1', contextLimit: 8 }))
-    expect(deps.authoring.createGenerationRun).toHaveBeenNthCalledWith(2, expect.objectContaining({ model: 'model', promptVersion: 'v2', contextLimit: 0, sourceSessionId: 'source' }))
+    expect(deps.authoring.createGenerationRun).toHaveBeenNthCalledWith(2, expect.objectContaining({ model: 'model', promptVersion: 'v2', contextLimit: 0, sourceSessionId: principal.sessionId }))
     expect((await controller.handle({ method: 'POST', path: '/api/novels/novel/generation-runs', body: { instruction: 'Write', idempotencyKey: 'retry' } })).status).toBe(403)
   })
   it.each([{ instruction: null }, { idempotencyKey: '' }, { limit: -1 }, { limit: 1.5 }])('rejects invalid workflow fields %j', async (override) => {

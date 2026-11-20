@@ -1610,6 +1610,118 @@ export interface Config {
 
 Source: [`packages/feedback/message-feedback/src/index.ts:40`](../packages/feedback/message-feedback/src/index.ts)
 
+<a id="deepseek-aidsh-novel-host"></a>
+
+## `@deepseek-ai/dsh-novel-host`
+
+```ts config-catalog
+/** Configuration consumed by either the API or the single active generation worker. */
+export interface Config {
+  /** Run the authenticated API or the single active generation worker. */
+  readonly mode: 'api' | 'worker'
+  /** Directory containing fixed host-owned credential filenames. */
+  readonly secretDirectory: string
+  /** Exact HTTPS Origin permitted for state-changing browser requests. */
+  readonly origin: string
+  /** Restricted PostgreSQL endpoint, login names, and pool bounds. */
+  readonly database: {
+    /** PostgreSQL hostname. */
+    readonly host: string
+    /** PostgreSQL TCP port. */
+    readonly port: number
+    /** Provisioned database name. */
+    readonly name: string
+    /** Login allowed to assume only the authentication runtime role. */
+    readonly authUser: string
+    /** Login allowed to assume only the application runtime role. */
+    readonly appUser: string
+    /** Login allowed to assume only the publication service runtime role. */
+    readonly serviceUser: string
+    /** Login allowed to assume only the generation worker runtime role. */
+    readonly workerUser: string
+    /** Maximum connections in each restricted pool; at least three. */
+    readonly maxConnections: number
+    /** Milliseconds before an idle pooled connection is closed. */
+    readonly idleTimeoutMs: number
+    /** Milliseconds allowed to establish a database connection. */
+    readonly connectionTimeoutMs: number
+  }
+  /** Redis queue endpoint, notification names, and bounded command timing. */
+  readonly redis: {
+    /** Redis hostname. */
+    readonly host: string
+    /** Redis TCP port. */
+    readonly port: number
+    /** Redis Stream carrying workspace and generation-run locators. */
+    readonly stream: string
+    /** Consumer group whose pending deliveries the active worker recovers. */
+    readonly group: string
+    /** Milliseconds a new-message read may block. */
+    readonly blockMs: number
+    /** Milliseconds between failed intake or reconnect attempts. */
+    readonly retryMs: number
+    /** Milliseconds allowed per Redis command; must exceed blockMs. */
+    readonly commandTimeoutMs: number
+    /** Milliseconds allowed to establish a Redis connection. */
+    readonly connectTimeoutMs: number
+  }
+  /** SMTP endpoint and auth-message delivery settings. */
+  readonly smtp: {
+    /** SMTP hostname. */
+    readonly host: string
+    /** SMTP TCP port. */
+    readonly port: number
+    /** Sender address for verification and password-reset messages. */
+    readonly from: string
+    /** Milliseconds allowed for SMTP connection, greeting, and socket operations. */
+    readonly timeoutMs: number
+  }
+  /** HTTP listener and maximum collected request body. */
+  readonly server: {
+    /** Loopback-only or all-interface HTTP bind address; TLS belongs to the proxy. */
+    readonly host: '127.0.0.1' | '0.0.0.0'
+    /** HTTP TCP port; zero requests an operating-system-assigned port. */
+    readonly port: number
+    /** Maximum collected API request bytes. */
+    readonly maxBodyBytes: number
+  }
+  /** Generation provider endpoint and per-request limits. */
+  readonly provider: {
+    /** HTTPS provider base URL or the exact internal fixture URL. */
+    readonly url: string
+    /** Provider model identifier sent with each generation request. */
+    readonly model: string
+    /** Milliseconds allowed for one provider request. */
+    readonly timeoutMs: number
+    /** Maximum characters sent for each selected context excerpt. */
+    readonly maxContextExcerptChars: number
+  }
+  /** Access-token claims, credential lifetimes, and account lock policy. */
+  readonly auth: {
+    /** Expected issuer claim of signed access tokens. */
+    readonly issuer: string
+    /** Expected audience claim of signed access tokens. */
+    readonly audience: string
+    /** Access-token lifetime in seconds. */
+    readonly accessTtlSeconds: number
+    /** Refresh-token lifetime in milliseconds. */
+    readonly refreshTtlMs: number
+    /** Email-verification token lifetime in milliseconds. */
+    readonly verificationTtlMs: number
+    /** Password-reset token lifetime in milliseconds. */
+    readonly resetTtlMs: number
+    /** Authentication session lifetime in milliseconds. */
+    readonly sessionTtlMs: number
+    /** Failed-login count that triggers the account lock. */
+    readonly failedLoginThreshold: number
+    /** Account lock duration in milliseconds. */
+    readonly lockDurationMs: number
+  }
+}
+```
+
+Source: [`packages/host/novel-host/src/config.ts:5`](../packages/host/novel-host/src/config.ts)
+
 <a id="deepseek-aidsh-permission-presets"></a>
 
 ## `@deepseek-ai/dsh-permission-presets`
@@ -3594,6 +3706,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-llm-mock-server` ([`packages/test-support/llm-mock-server/src/index.ts`](../packages/test-support/llm-mock-server/src/index.ts))
 - `@deepseek-ai/dsh-loader-smoke` ([`packages/test-support/loader-smoke/src/index.ts`](../packages/test-support/loader-smoke/src/index.ts))
 - `@deepseek-ai/dsh-native-command` ([`packages/util/native-command/src/index.ts`](../packages/util/native-command/src/index.ts))
+- `@deepseek-ai/dsh-novel-app` ([`packages/bundle/novel-app/src/index.ts`](../packages/bundle/novel-app/src/index.ts))
 - `@deepseek-ai/dsh-novel-authoring` ([`packages/storage/novel-authoring/src/index.ts`](../packages/storage/novel-authoring/src/index.ts))
 - `@deepseek-ai/dsh-output-retention` ([`packages/util/output-retention/src/index.ts`](../packages/util/output-retention/src/index.ts))
 - `@deepseek-ai/dsh-package-manifest` ([`packages/util/package-manifest/src/index.ts`](../packages/util/package-manifest/src/index.ts))

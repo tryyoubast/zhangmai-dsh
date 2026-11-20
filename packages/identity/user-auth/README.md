@@ -42,6 +42,8 @@ The host imports services and stores and connects the controller to its HTTP ada
 
 Browser login returns a `__Host-dsh_session` cookie with `HttpOnly`, `Secure`, `SameSite=Lax`, and `Path=/`. Official-client login and refresh return a short-lived EdDSA access token plus a rotated opaque refresh token. State-changing requests can enforce an allowed `Origin`; the host application must still connect the controller to its HTTP framework, session resolver, workspace identity resolver, and key management.
 
+When configured, the login workspace resolver completes before either client receives credentials. A rejected or unavailable identity returns the sanitized availability error without a Cookie, JWT, or refresh token. Browser login without a workspace resolver retains its cookie-only behavior; official-client login requires a resolver. Hosts keep first-login onboarding separate from ordinary identity resolution and validate sessions through the session resolver.
+
 -----
 
 <a id="understand-the-implementation"></a>

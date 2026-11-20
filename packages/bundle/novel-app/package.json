@@ -1,0 +1,22 @@
+{
+  "name": "@deepseek-ai/dsh-novel-app",
+  "description": "Standalone patch bundle for the novel API and worker dsh profiles",
+  "version": "0.1.5-rc.2",
+  "publishConfig": { "access": "public" },
+  "repository": { "type": "git", "url": "git+https://github.com/deepseek-ai/deepseek-harness.git", "directory": "packages/bundle/novel-app" },
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": { "types": "./lib/types/index.d.ts", "default": "./lib/index.js" },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": ["lib/index.js", "cordis.patch.yml", "lib/types/**/*.d.ts"],
+  "license": "MIT",
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } },
+  "peerDependencies": { "@deepseek-ai/cordis": "workspace:^" },
+  "devDependencies": { "@deepseek-ai/cordis": "workspace:^" },
+  "dependencies": { "@deepseek-ai/dsh-novel-host": "workspace:^" }
+}

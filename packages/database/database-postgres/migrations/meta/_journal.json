@@ -99,6 +99,62 @@
       "when": 1793232000000,
       "tag": "0014_novel_context_fulltext_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1794268800000,
+      "tag": "0015_current_user_workspace_memberships",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1794355200000,
+      "tag": "0016_generation_claim_policy_repair",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1794441600000,
+      "tag": "0017_generation_worker_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1794441600001,
+      "tag": "0018_draft_guard_context_privileges",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1794441600002,
+      "tag": "0019_agent_run_predicate_privileges",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1794441600003,
+      "tag": "0020_independent_proposal_publication",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1794441600004,
+      "tag": "0021_settle_unavailable_generation_runs",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1794441600005,
+      "tag": "0022_guard_proposal_publication_state",
+      "breakpoints": true
     }
   ]
 }

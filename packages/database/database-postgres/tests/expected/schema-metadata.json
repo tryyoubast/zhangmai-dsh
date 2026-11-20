@@ -182,6 +182,8 @@
       {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false}
     ],
     "indexes": [
+      {"name":"character_skill_versions_history_no_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"character_skill_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"version_no","keyAsName":false,"type":"PgInteger","indexConfig":{"order":"asc","nulls":"last"}}],"where":{"sql":"\"novel\".\"character_skill_versions\".\"status\" <> 'draft'","params":[]}},
+      {"name":"character_skill_versions_proposal_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}}],"where":{"sql":"\"novel\".\"character_skill_versions\".\"source_type\" = 'generation_proposal'","params":[]}},
       {"name":"character_skill_versions_workspace_entity_idx","unique":false,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"novel_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"character_skill_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"version_no","keyAsName":false,"type":"PgInteger","indexConfig":{"order":"desc","nulls":"last"}}]},
       {"name":"character_skill_versions_workspace_idempotency_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_idempotency_key","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}]}
     ],
@@ -191,11 +193,10 @@
       {"name":"character_skill_versions_workspace_novel_entity_fkey","columns":["workspace_id","novel_id","character_skill_id"],"foreignSchema":"novel","foreignTable":"character_skills","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"},
       {"name":"character_skill_versions_workspace_novel_run_fkey","columns":["workspace_id","novel_id","source_generation_run_id"],"foreignSchema":"ai","foreignTable":"generation_runs","foreignColumns":["workspace_id","novel_id","id"],"onUpdate":"no action","onDelete":"no action"}
     ],
-    "uniqueConstraints": [
-      {"name":"character_skill_versions_workspace_entity_version_key","columns":["workspace_id","character_skill_id","version_no"],"nullsNotDistinct":false}
-    ],
+    "uniqueConstraints": [],
     "checks": [
       {"name":"character_skill_versions_version_no_check","value":{"sql":"\"novel\".\"character_skill_versions\".\"version_no\" > 0","params":[]}},
+      {"name":"character_skill_versions_proposal_source_check","value":{"sql":"\"novel\".\"character_skill_versions\".\"source_type\" <> 'generation_proposal' OR \"novel\".\"character_skill_versions\".\"source_id\" IS NOT NULL","params":[]}},
       {"name":"character_skill_versions_status_check","value":{"sql":"\"novel\".\"character_skill_versions\".\"status\" IN ('draft', 'published', 'archived', 'deleted')","params":[]}}
     ],
     "enableRLS": false,
@@ -265,7 +266,8 @@
       {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false}
     ],
     "indexes": [
-      {"name":"character_versions_character_no_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"character_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"version_no","keyAsName":false,"type":"PgInteger","indexConfig":{"order":"asc","nulls":"last"}}]},
+      {"name":"character_versions_history_no_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"character_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"version_no","keyAsName":false,"type":"PgInteger","indexConfig":{"order":"asc","nulls":"last"}}],"where":{"sql":"\"novel\".\"character_versions\".\"status\" <> 'draft'","params":[]}},
+      {"name":"character_versions_proposal_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}}],"where":{"sql":"\"novel\".\"character_versions\".\"source_type\" = 'generation_proposal'","params":[]}},
       {"name":"character_versions_workspace_idempotency_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_idempotency_key","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}]},
       {"name":"character_versions_workspace_idx","unique":false,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}}]}
     ],
@@ -278,6 +280,7 @@
     ],
     "uniqueConstraints": [],
     "checks": [
+      {"name":"character_versions_proposal_source_check","value":{"sql":"\"novel\".\"character_versions\".\"source_type\" <> 'generation_proposal' OR \"novel\".\"character_versions\".\"source_id\" IS NOT NULL","params":[]}},
       {"name":"character_versions_status_check","value":{"sql":"\"novel\".\"character_versions\".\"status\" IN ('draft', 'published', 'archived', 'deleted')","params":[]}}
     ],
     "enableRLS": false,
@@ -365,7 +368,8 @@
       {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false}
     ],
     "indexes": [
-      {"name":"entity_relation_versions_workspace_entity_no_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"relation_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"version_no","keyAsName":false,"type":"PgInteger","indexConfig":{"order":"asc","nulls":"last"}}]},
+      {"name":"entity_relation_versions_history_no_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"relation_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"version_no","keyAsName":false,"type":"PgInteger","indexConfig":{"order":"asc","nulls":"last"}}],"where":{"sql":"\"novel\".\"entity_relation_versions\".\"status\" <> 'draft'","params":[]}},
+      {"name":"entity_relation_versions_proposal_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}}],"where":{"sql":"\"novel\".\"entity_relation_versions\".\"source_type\" = 'generation_proposal'","params":[]}},
       {"name":"entity_relation_versions_workspace_idempotency_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_idempotency_key","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}]}
     ],
     "primaryKeys": [],
@@ -377,6 +381,7 @@
     ],
     "uniqueConstraints": [],
     "checks": [
+      {"name":"entity_relation_versions_proposal_source_check","value":{"sql":"\"novel\".\"entity_relation_versions\".\"source_type\" <> 'generation_proposal' OR \"novel\".\"entity_relation_versions\".\"source_id\" IS NOT NULL","params":[]}},
       {"name":"entity_relation_versions_status_check","value":{"sql":"\"novel\".\"entity_relation_versions\".\"status\" IN ('draft', 'published', 'archived', 'deleted')","params":[]}}
     ],
     "enableRLS": false,
@@ -451,7 +456,8 @@
       {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false}
     ],
     "indexes": [
-      {"name":"faction_versions_workspace_entity_no_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"faction_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"version_no","keyAsName":false,"type":"PgInteger","indexConfig":{"order":"asc","nulls":"last"}}]},
+      {"name":"faction_versions_history_no_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"faction_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"version_no","keyAsName":false,"type":"PgInteger","indexConfig":{"order":"asc","nulls":"last"}}],"where":{"sql":"\"novel\".\"faction_versions\".\"status\" <> 'draft'","params":[]}},
+      {"name":"faction_versions_proposal_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}}],"where":{"sql":"\"novel\".\"faction_versions\".\"source_type\" = 'generation_proposal'","params":[]}},
       {"name":"faction_versions_workspace_idempotency_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_idempotency_key","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}]}
     ],
     "primaryKeys": [],
@@ -463,6 +469,7 @@
     ],
     "uniqueConstraints": [],
     "checks": [
+      {"name":"faction_versions_proposal_source_check","value":{"sql":"\"novel\".\"faction_versions\".\"source_type\" <> 'generation_proposal' OR \"novel\".\"faction_versions\".\"source_id\" IS NOT NULL","params":[]}},
       {"name":"faction_versions_status_check","value":{"sql":"\"novel\".\"faction_versions\".\"status\" IN ('draft', 'published', 'archived', 'deleted')","params":[]}}
     ],
     "enableRLS": false,
@@ -692,7 +699,8 @@
       {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false}
     ],
     "indexes": [
-      {"name":"item_versions_workspace_entity_no_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"item_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"version_no","keyAsName":false,"type":"PgInteger","indexConfig":{"order":"asc","nulls":"last"}}]},
+      {"name":"item_versions_history_no_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"item_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"version_no","keyAsName":false,"type":"PgInteger","indexConfig":{"order":"asc","nulls":"last"}}],"where":{"sql":"\"novel\".\"item_versions\".\"status\" <> 'draft'","params":[]}},
+      {"name":"item_versions_proposal_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}}],"where":{"sql":"\"novel\".\"item_versions\".\"source_type\" = 'generation_proposal'","params":[]}},
       {"name":"item_versions_workspace_idempotency_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_idempotency_key","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}]}
     ],
     "primaryKeys": [],
@@ -704,6 +712,7 @@
     ],
     "uniqueConstraints": [],
     "checks": [
+      {"name":"item_versions_proposal_source_check","value":{"sql":"\"novel\".\"item_versions\".\"source_type\" <> 'generation_proposal' OR \"novel\".\"item_versions\".\"source_id\" IS NOT NULL","params":[]}},
       {"name":"item_versions_status_check","value":{"sql":"\"novel\".\"item_versions\".\"status\" IN ('draft', 'published', 'archived', 'deleted')","params":[]}}
     ],
     "enableRLS": false,
@@ -771,7 +780,8 @@
       {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false}
     ],
     "indexes": [
-      {"name":"location_versions_workspace_entity_no_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"location_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"version_no","keyAsName":false,"type":"PgInteger","indexConfig":{"order":"asc","nulls":"last"}}]},
+      {"name":"location_versions_history_no_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"location_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"version_no","keyAsName":false,"type":"PgInteger","indexConfig":{"order":"asc","nulls":"last"}}],"where":{"sql":"\"novel\".\"location_versions\".\"status\" <> 'draft'","params":[]}},
+      {"name":"location_versions_proposal_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}}],"where":{"sql":"\"novel\".\"location_versions\".\"source_type\" = 'generation_proposal'","params":[]}},
       {"name":"location_versions_workspace_idempotency_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_idempotency_key","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}]}
     ],
     "primaryKeys": [],
@@ -783,6 +793,7 @@
     ],
     "uniqueConstraints": [],
     "checks": [
+      {"name":"location_versions_proposal_source_check","value":{"sql":"\"novel\".\"location_versions\".\"source_type\" <> 'generation_proposal' OR \"novel\".\"location_versions\".\"source_id\" IS NOT NULL","params":[]}},
       {"name":"location_versions_status_check","value":{"sql":"\"novel\".\"location_versions\".\"status\" IN ('draft', 'published', 'archived', 'deleted')","params":[]}}
     ],
     "enableRLS": false,
@@ -994,7 +1005,8 @@
       {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false}
     ],
     "indexes": [
-      {"name":"skill_versions_skill_no_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"skill_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"version_no","keyAsName":false,"type":"PgInteger","indexConfig":{"order":"asc","nulls":"last"}}]},
+      {"name":"skill_versions_history_no_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"skill_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"version_no","keyAsName":false,"type":"PgInteger","indexConfig":{"order":"asc","nulls":"last"}}],"where":{"sql":"\"novel\".\"skill_versions\".\"status\" <> 'draft'","params":[]}},
+      {"name":"skill_versions_proposal_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}}],"where":{"sql":"\"novel\".\"skill_versions\".\"source_type\" = 'generation_proposal'","params":[]}},
       {"name":"skill_versions_workspace_idempotency_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_idempotency_key","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}]},
       {"name":"skill_versions_workspace_idx","unique":false,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}}]}
     ],
@@ -1007,6 +1019,7 @@
     ],
     "uniqueConstraints": [],
     "checks": [
+      {"name":"skill_versions_proposal_source_check","value":{"sql":"\"novel\".\"skill_versions\".\"source_type\" <> 'generation_proposal' OR \"novel\".\"skill_versions\".\"source_id\" IS NOT NULL","params":[]}},
       {"name":"skill_versions_status_check","value":{"sql":"\"novel\".\"skill_versions\".\"status\" IN ('draft', 'published', 'archived', 'deleted')","params":[]}}
     ],
     "enableRLS": false,
@@ -1120,7 +1133,8 @@
       {"name":"created_at","sqlType":"timestamp with time zone","dataType":"date","columnType":"PgTimestamp","notNull":true,"primary":false,"hasDefault":true,"default":{"sql":"now()","params":[]},"isUnique":false}
     ],
     "indexes": [
-      {"name":"storyline_versions_workspace_entity_no_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"storyline_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"version_no","keyAsName":false,"type":"PgInteger","indexConfig":{"order":"asc","nulls":"last"}}]},
+      {"name":"storyline_versions_history_no_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"storyline_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"version_no","keyAsName":false,"type":"PgInteger","indexConfig":{"order":"asc","nulls":"last"}}],"where":{"sql":"\"novel\".\"storyline_versions\".\"status\" <> 'draft'","params":[]}},
+      {"name":"storyline_versions_proposal_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}}],"where":{"sql":"\"novel\".\"storyline_versions\".\"source_type\" = 'generation_proposal'","params":[]}},
       {"name":"storyline_versions_workspace_idempotency_idx","unique":true,"only":false,"method":"btree","columns":[{"name":"workspace_id","keyAsName":false,"type":"PgUUID","indexConfig":{"order":"asc","nulls":"last"}},{"name":"source_idempotency_key","keyAsName":false,"type":"PgText","indexConfig":{"order":"asc","nulls":"last"}}]}
     ],
     "primaryKeys": [],
@@ -1132,6 +1146,7 @@
     ],
     "uniqueConstraints": [],
     "checks": [
+      {"name":"storyline_versions_proposal_source_check","value":{"sql":"\"novel\".\"storyline_versions\".\"source_type\" <> 'generation_proposal' OR \"novel\".\"storyline_versions\".\"source_id\" IS NOT NULL","params":[]}},
       {"name":"storyline_versions_status_check","value":{"sql":"\"novel\".\"storyline_versions\".\"status\" IN ('draft', 'published', 'archived', 'deleted')","params":[]}}
     ],
     "enableRLS": false,

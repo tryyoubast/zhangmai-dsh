@@ -17,6 +17,65 @@ import {
   type AuthUserRecord,
 } from '../src/index.ts'
 
+describe('workspace identity settlement before login credentials', () => {
+  const request = { method: 'POST', path: '/api/auth/login', headers: {},
+    body: { email: 'workspace@example.com', password: 'a sufficiently long password' } }
+
+  async function activeAuth() {
+    const store = new HttpStore()
+    const auth = new UserAuthService(store)
+    const registration = await auth.register(request.body.email, request.body.password)
+    await auth.verifyEmail(registration.verificationToken)
+    return { store, auth }
+  }
+
+  it.each(['reject', 'null'] as const)('withholds browser credentials when configured identity resolution returns %s', async (failure) => {
+    const { store, auth } = await activeAuth()
+    const controller = new AuthHttpController(auth, store, {
+      resolveIdentity: async () => {
+        await Promise.resolve()
+        if (failure === 'reject') throw new Error('private database failure')
+        return null
+      },
+    })
+    const response = await controller.handle(request)
+    expect(response.status).toBe(500)
+    expect(response.body).toBe(JSON.stringify({ error: 'authentication_unavailable' }))
+    expect(response.headers).not.toHaveProperty('set-cookie')
+    expect(response.body).not.toMatch(/private|Token/u)
+    expect(store.refresh.size).toBe(0)
+  })
+
+  it('finishes configured browser identity resolution before returning the cookie', async () => {
+    const { store, auth } = await activeAuth()
+    const started = Promise.withResolvers<boolean>()
+    const release = Promise.withResolvers<boolean>()
+    let finished = false
+    const controller = new AuthHttpController(auth, store, {
+      resolveIdentity: async (userId) => {
+        started.resolve(true)
+        await release.promise
+        finished = true
+        return { userId, workspaceId: 'workspace', roles: ['owner'] }
+      },
+    })
+    const response = controller.handle(request)
+    const first = await Promise.race([started.promise.then(() => 'started'), response.then(() => 'returned')])
+    expect(first).toBe('started')
+    expect(finished).toBe(false)
+    release.resolve(true)
+    expect((await response).headers['set-cookie']).toMatch(/^__Host-dsh_session=/u)
+    expect(finished).toBe(true)
+  })
+
+  it('preserves browser cookie login when no workspace resolver is configured', async () => {
+    const { store, auth } = await activeAuth()
+    const response = await new AuthHttpController(auth, store).handle(request)
+    expect(response.status).toBe(200)
+    expect(response.headers['set-cookie']).toMatch(/^__Host-dsh_session=/u)
+  })
+})
+
 class HttpStore extends MemoryRefreshTokenStore implements AuthLifecycleStore {
   readonly users = new Map<string, AuthUserRecord>()
   readonly sessions = new Map<string, { userId: string; tokenHash: string }>()

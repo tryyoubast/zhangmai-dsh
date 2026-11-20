@@ -152,6 +152,68 @@ type DomainChanged = DomainChangedPut | DomainChangedDeleted
 
 `put`（插入、覆写和 global 写入）在 `value` 中携带新快照——绝不携带旧值；需要做差异比较的消费方自行保留上一份快照。`deleted` 是不携带值的墓碑。该事件是通知，不是事务参与者：发出时提交点已经过去，因此同步抛出的监听器会被兜住并记录一条警告，而不会让已经持久的写入被拒绝；发出的值等于发出时刻的内存态。该事件仅限进程内；跨进程的变更推送是一项已记录的限制（[包 README](../../packages/storage/storage-domain/README.zh.md)）。
 
+## 小说生成持久化
+
+[小说创作](../../packages/storage/novel-authoring/README.zh.md)在 workspace RLS 下保存排队请求、可审核草稿目标、生成上下文和 proposal 状态。领取请求在供应商调用前提交 running 状态；`executeQueued()` 消费已保存请求，不新建任务。轮询只返回 run/proposal 定位信息与状态；[worker 身份解析器](../../packages/storage/novel-authoring/src/worker-identity.ts)重新核对来源 session 与当前成员权限。[宿主](../../packages/host/novel-host/README.zh.md)拥有 Redis 通知与恢复。
+
+队列投递期间若授权失效，Worker 会调用受限的数据库结算函数，并在任务行锁内重新核对权限。身份仍有效时保留可重试投递；来源会话或成员关系已失效时，在同一事务将任务标记为失败并写入生命周期审计。只有当前 owner 或 admin 对目标工作区发起显式恢复操作，才能恢复归档工作区；普通创作仍要求活跃成员关系。
+
+发布与回滚通过 `ProposalOperationError` 提供安全的 `kind`；原始数据库错误仅保留在内部 cause 中。只有四个专用业务 SQLSTATE 会被分类，其他数据库异常向宿主传播为服务故障。
+
+数据库发布守卫要求提案、审核内容、已发布目标和精确版本候选相互一致。竞争失败的旧提案保持冲突状态，不会被标为已发布，也不会写入成功发布审计。
+
+```ts type-equiv
+/** Caller-visible failures; infrastructure and unexpected database errors remain unclassified. */
+type ProposalOperationErrorKind = 'not_found' | 'forbidden' | 'conflict' | 'invalid_request'
+```
+
+```ts type-equiv
+/** Durable request returned after a worker atomically claims its queued run and advances it to running. */
+interface QueuedGenerationRequest extends GenerationRunInput {
+  readonly generationRunId: string
+  readonly instruction: string
+  readonly contextLimit: number
+}
+```
+
+```ts type-equiv
+/** Reviewable proposal locator exposed with its generation run; content and diagnostics are excluded. */
+interface GenerationRunProposal {
+  readonly id: string
+  readonly targetType: NovelDraftTargetType
+  readonly targetId: string | null
+  readonly status: ProposalStatus
+}
+```
+
+```ts type-equiv
+/** Safe durable run state for authenticated polling and worker completion inspection. */
+interface GenerationRunView {
+  readonly runId: string
+  readonly status: GenerationRunStatus
+  readonly proposals: readonly GenerationRunProposal[]
+}
+```
+
+```ts type-equiv
+/** Current persisted authority and run state, without queued instruction text or authentication credentials. */
+interface GenerationWorkerIdentity {
+  readonly principal: AuthPrincipal
+  readonly novelId: string
+  readonly status: GenerationRunStatus
+}
+```
+
+```ts type-equiv
+/** Injected seams for coordinating run lifecycle, generation, and materialization. */
+interface NovelGenerationWorkflowDependencies {
+  readonly authoring: Pick<NovelAuthoringService, 'createGenerationRun' | 'updateGenerationRunStatus'> & Partial<Pick<NovelAuthoringService, 'getGenerationRunStatus' | 'getQueuedGenerationRequest'>>
+  readonly generation: Pick<LongformGenerationService, 'generate' | 'findPersistedResult'>
+  readonly enrichment?: NovelGenerationEnrichmentAdapter
+  readonly materialization: Pick<GenerationMaterializationService, 'materialize'>
+}
+```
+
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>

@@ -327,6 +327,71 @@ function startStartupProfile(fixture: StartupFixture, args: readonly string[]) {
 }
 
 describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', () => {
+  it('loads a bundle dependency through the profile without native addons', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'dsh-built-bare-plugin-'))
+    const profile = join(home, 'profiles', 'bare-plugin')
+    const bundle = join(profile, 'node_modules', 'dsh-test-bare-bundle')
+    const plugin = join(bundle, 'node_modules', 'dsh-test-bare-plugin')
+    mkdirSync(plugin, { recursive: true })
+    writeFileSync(join(profile, 'package.json'), JSON.stringify({
+      private: true,
+      type: 'module',
+      dsh: { profile: { bundles: ['dsh-test-bare-bundle'], patchReload: 'startup' } },
+    }))
+    writeFileSync(join(bundle, 'package.json'), JSON.stringify({
+      name: 'dsh-test-bare-bundle',
+      version: '0.0.0',
+      type: 'module',
+      dependencies: { 'dsh-test-bare-plugin': '0.0.0' },
+      dsh: { bundle: { patch: './cordis.patch.yml' } },
+    }))
+    writeFileSync(join(bundle, 'cordis.patch.yml'), JSON.stringify([
+      { insert: [{ id: 'bare-plugin', name: 'dsh-test-bare-plugin' }] },
+    ]))
+    writeFileSync(join(plugin, 'package.json'), JSON.stringify({
+      name: 'dsh-test-bare-plugin',
+      version: '0.0.0',
+      type: 'module',
+      exports: { import: './index.mjs', require: './unavailable.cjs' },
+    }))
+    writeFileSync(join(plugin, 'index.mjs'), [
+      'export const inject = ["cmdlineArgs", "appReady", "appExit"]',
+      'export function apply(ctx) {',
+      '  ctx.appReady.onReady(() => {',
+      '    process.stdout.write("bundle dependency loaded\\n")',
+      '    ctx.appExit(0)',
+      '  })',
+      '}',
+      '',
+    ].join('\n'))
+    try {
+      // --no-addons exercises the public ESM path when Loader cannot reach
+      // Node internals, as on a platform lacking its optional addon.
+      const launch = () => execa(process.execPath, ['--no-addons', dshBin, '--profile', 'bare-plugin'], {
+        cwd: home,
+        input: '',
+        timeout: SPAWN_TIMEOUT_MS,
+        killSignal: 'SIGKILL',
+        reject: false,
+        env: { ...process.env, DSH_HOME: home },
+        extendEnv: false,
+      })
+      const result = await launch()
+      expect(result.stderr).toBe('')
+      expect(result.exitCode).toBe(0)
+      expect(result.stdout).toBe('bundle dependency loaded')
+      writeFileSync(join(bundle, 'cordis.patch.yml'), JSON.stringify([
+        { insert: [{ id: 'missing-plugin', name: 'dsh-test-missing-bare-plugin' }] },
+      ]))
+      const missing = await launch()
+      expect(missing.exitCode).toBe(1)
+      expect(missing.stdout).toBe('')
+      expect(missing.stderr).toContain('failed to import loader entry missing-plugin (dsh-test-missing-bare-plugin)')
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  }, SPAWN_TIMEOUT_MS + 30_000)
+
   it('requires --profile and rejects removed commands', async () => {
     const bare = await runBuiltBin()
     expect(bare.code).toBe(1)

@@ -2,7 +2,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
-import { isNovelDraftTargetType } from '@deepseek-ai/dsh-novel-authoring'
+import { isNovelDraftTargetType, ProposalOperationError } from '@deepseek-ai/dsh-novel-authoring'
 import type {
   AuthHttpRequest,
   AuthHttpResponse,
@@ -154,15 +154,20 @@ export function apply(ctx: Context, config: Config = { maxBodyBytes: DEFAULT_MAX
 
 /** Host-owned composition seam that joins authentication and authoring routes. */
 export interface PlatformHttpServices {
+  /** When configured, every state-changing business request requires this exact Origin. */
+  readonly allowedOrigin?: string
   readonly auth: { handle(request: AuthHttpRequest): Promise<AuthHttpResponse> }
-  readonly resolvePrincipal: (request: AuthHttpRequest) => Promise<AuthPrincipal | null>
+  /** An archived workspace may be resolved only for its explicit restore action. */
+  readonly resolvePrincipal: (request: AuthHttpRequest, restoreWorkspaceId?: string) => Promise<AuthPrincipal | null>
   readonly authoring: (principal: AuthPrincipal) => NovelAuthoringHttpServices
 }
 
 /** Domain services bound to the authenticated principal; absent optional operations return HTTP 404. */
 export interface NovelAuthoringHttpServices {
+  /** Notify the worker only after createGenerationRun commits; retries resend the same locator. */
+  readonly notifyGeneration?: (locator: { readonly workspaceId: string; readonly generationRunId: string }) => Promise<void>
   readonly workspace: Pick<WorkspaceAuthoringService, 'createWorkspace' | 'listWorkspaces' | 'createNovel'> & Partial<Pick<WorkspaceAuthoringService, 'inviteMember' | 'changeMemberRole' | 'revokeMember' | 'listMembers' | 'transferOwnership' | 'archiveWorkspace' | 'restoreWorkspace'>>
-  readonly authoring: Pick<NovelAuthoringService, 'createGenerationRun' | 'createDraftProposal'>
+  readonly authoring: Pick<NovelAuthoringService, 'createGenerationRun' | 'createDraftProposal'> & Partial<Pick<NovelAuthoringService, 'getGenerationRun'>>
   readonly generation?: Pick<NovelGenerationWorkflowService, 'generate'>
   readonly longform: Pick<LongformAuthoringService, 'listContextItems'>
   readonly review: Pick<ProposalReviewService, 'review' | 'bindTarget'>
@@ -233,7 +238,11 @@ export class PlatformHttpController {
    */
   async handle(request: AuthHttpRequest): Promise<AuthHttpResponse | NovelAuthoringHttpResponse> {
     if (request.path.startsWith('/api/auth/')) return this.services.auth.handle(request)
-    const principal = await this.services.resolvePrincipal(request)
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method.toUpperCase())
+      && this.services.allowedOrigin !== undefined && request.headers.origin !== this.services.allowedOrigin) {
+      return response(403, { error: 'origin_check_failed' })
+    }
+    const principal = await this.services.resolvePrincipal(request, restoreWorkspaceTarget(request))
     if (principal === null) return unauthorized()
     return new NovelAuthoringHttpController(principal, this.services.authoring(principal)).handle({
       method: request.method,
@@ -241,6 +250,14 @@ export class PlatformHttpController {
       body: request.body,
     })
   }
+}
+
+function restoreWorkspaceTarget(request: AuthHttpRequest): string | undefined {
+  if (request.method.toUpperCase() !== 'POST') return undefined
+  const parts = pathParts(request.path)
+  if (!hasPathParts(parts, 3) || parts[0] !== 'api' || parts[1] !== 'workspaces' || bodyOf(request).action !== 'restore') return undefined
+  const hint = request.headers['x-dsh-workspace-id']
+  return hint === undefined || hint.toLowerCase() === parts[2].toLowerCase() ? parts[2] : undefined
 }
 
 /**
@@ -257,6 +274,7 @@ export class NovelAuthoringHttpController {
    * Dispatch an authoring request using this controller's authenticated principal.
    * @param request - Method, path, and parsed or serialized JSON body.
    * @returns A JSON result or safe HTTP error; domain failures are mapped to response codes.
+   * Reviewing a missing or invisible proposal returns the same 404 response without exposing its existence.
    */
   async handle(request: NovelAuthoringHttpRequest): Promise<NovelAuthoringHttpResponse> {
     try {
@@ -295,7 +313,7 @@ export class NovelAuthoringHttpController {
       }
       if (method === 'POST' && hasPathParts(parts, 3) && parts[0] === 'api' && parts[1] === 'workspaces') {
         const action = stringField(body, 'action')
-        const workspaceId = this.workspace(parts[2])
+        const workspaceId = this.workspace(action === 'restore' ? parts[2].toLowerCase() : parts[2])
         if (action === 'transfer-ownership' && this.services.workspace.transferOwnership !== undefined) {
           const userId = stringField(body, 'userId')
           if (userId === null) return response(400, { error: 'invalid_request' })
@@ -325,7 +343,9 @@ export class NovelAuthoringHttpController {
           novelId: parts[2],
           model: stringField(body, 'model') ?? 'configured-provider',
           promptVersion: stringField(body, 'promptVersion') ?? 'v1',
-          sourceSessionId: stringField(body, 'sourceSessionId') ?? '00000000-0000-0000-0000-000000000000',
+          sourceSessionId: this.principal.actorType === 'agent'
+            ? stringField(body, 'sourceSessionId') ?? '00000000-0000-0000-0000-000000000000'
+            : this.principal.sessionId,
           idempotencyKey: stringField(body, 'idempotencyKey') ?? '',
           ...(instruction === null ? {} : { instruction }),
           contextLimit,
@@ -334,7 +354,28 @@ export class NovelAuthoringHttpController {
           || !Number.isSafeInteger(contextLimit) || contextLimit < 0 || contextLimit > 128) {
           return response(400, { error: 'invalid_request' })
         }
-        return jsonBody(await this.services.authoring.createGenerationRun(input))
+        if (this.principal.actorType !== 'agent' && body.sourceSessionId !== undefined && body.sourceSessionId !== this.principal.sessionId) {
+          return response(400, { error: 'invalid_request' })
+        }
+        const runId = await this.services.authoring.createGenerationRun(input)
+        if (this.principal.actorType !== 'agent' && this.services.notifyGeneration !== undefined) {
+          return await this.notifyQueued(input.workspaceId, runId)
+        }
+        return jsonBody(runId)
+      }
+      if (method === 'GET' && hasPathParts(parts, 5) && parts[0] === 'api' && parts[1] === 'novels' && parts[3] === 'generation-runs') {
+        if (this.services.authoring.getGenerationRun === undefined) return response(404, { error: 'not_found' })
+        const run = await this.services.authoring.getGenerationRun({
+          workspaceId: this.principal.workspaceId, novelId: parts[2], generationRunId: parts[4],
+        })
+        if (run === undefined) return response(404, { error: 'not_found' })
+        return jsonBody({
+          runId: run.runId,
+          status: run.status,
+          proposals: run.proposals.map(proposal => ({
+            id: proposal.id, targetType: proposal.targetType, targetId: proposal.targetId, status: proposal.status,
+          })),
+        })
       }
       if (method === 'POST' && hasPathParts(parts, 4) && parts[0] === 'api' && parts[1] === 'novels' && parts[3] === 'generate') {
         const novelId = parts[2]
@@ -345,19 +386,24 @@ export class NovelAuthoringHttpController {
         if (instruction === null || idempotencyKey === null || !Number.isSafeInteger(limit) || limit < 0) {
           return response(400, { error: 'invalid_request' })
         }
+        if (this.principal.actorType !== 'agent' && body.sourceSessionId !== undefined && body.sourceSessionId !== this.principal.sessionId) {
+          return response(400, { error: 'invalid_request' })
+        }
         const generationInput = {
           workspaceId,
           novelId,
           model: stringField(body, 'model') ?? 'configured-provider',
           promptVersion: stringField(body, 'promptVersion') ?? 'v1',
-          sourceSessionId: stringField(body, 'sourceSessionId') ?? '00000000-0000-0000-0000-000000000000',
+          sourceSessionId: this.principal.actorType === 'agent'
+            ? stringField(body, 'sourceSessionId') ?? '00000000-0000-0000-0000-000000000000'
+            : this.principal.sessionId,
           idempotencyKey,
           instruction,
           contextLimit: limit,
         }
         if (this.principal.actorType !== 'agent') {
           const runId = await this.services.authoring.createGenerationRun(generationInput)
-          return jsonBody({ runId, status: 'queued' }, 202)
+          return await this.notifyQueued(workspaceId, runId)
         }
         if (!this.services.generation) return response(404, { error: 'not_found' })
         const input: NovelGenerationWorkflowInput = {
@@ -414,10 +460,29 @@ export class NovelAuthoringHttpController {
       }
       return response(404, { error: 'not_found' })
     } catch (error) {
+      if (error instanceof ProposalOperationError) {
+        const status = { not_found: 404, forbidden: 403, conflict: 409, invalid_request: 400 }[error.kind]
+        return response(status, { error: error.kind })
+      }
+      const parts = pathParts(request.path)
+      if (request.method.toUpperCase() === 'POST' && hasPathParts(parts, 4) && parts[0] === 'api'
+        && parts[1] === 'proposals' && (parts[3] === 'publish' || parts[3] === 'rollback')) {
+        return response(500, { error: 'authoring_unavailable' })
+      }
+      if (error instanceof Error && error.message === 'proposal was not found') return response(404, { error: 'not_found' })
       if (error instanceof Error && /permission|required|context mismatch|invalid|workspace/i.test(error.message)) return response(403, { error: 'forbidden' })
       if (error instanceof Error && /version conflict|already exists|idempotency/i.test(error.message)) return response(409, { error: 'conflict' })
       return response(500, { error: 'authoring_unavailable' })
     }
+  }
+
+  private async notifyQueued(workspaceId: string, generationRunId: string): Promise<NovelAuthoringHttpResponse> {
+    try {
+      await this.services.notifyGeneration?.({ workspaceId, generationRunId })
+    } catch {
+      return response(503, { error: 'queue_unavailable' })
+    }
+    return jsonBody({ runId: generationRunId, status: 'queued' }, 202)
   }
 
   private workspace(workspaceId: string): string {

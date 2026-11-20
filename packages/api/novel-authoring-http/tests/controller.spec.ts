@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { NovelAuthoringHttpController, PlatformHttpController, type NovelAuthoringHttpServices } from '../src/index.ts'
 import type { AuthPrincipal } from '@deepseek-ai/dsh-user-auth'
+import { ProposalReviewService } from '@deepseek-ai/dsh-novel-authoring'
+import { serviceDatabase } from '../../../storage/novel-authoring/tests/coverage-fixture.ts'
 
 const principal: AuthPrincipal = {
   userId: 'user-1', sessionId: 'session-1', clientType: 'browser', workspaceId: 'workspace-1', roles: ['owner'], actorType: 'user',
@@ -76,6 +78,34 @@ describe('NovelAuthoringHttpController', () => {
     expect(created).toBe(false)
   })
 
+  it('requests archived workspace authority only for the matching restore action', async () => {
+    const restoreWorkspace = vi.fn(async () => {})
+    const resolvePrincipal = vi.fn(async (_request: unknown, restoreWorkspaceId?: string) =>
+      restoreWorkspaceId === principal.workspaceId ? principal : null)
+    const services = proposalServices(async () => 'proposal')
+    const platform = new PlatformHttpController({
+      auth: { handle: async () => ({ status: 204, headers: {}, body: '' }) },
+      allowedOrigin: 'https://test.invalid',
+      resolvePrincipal,
+      authoring: () => ({ ...services, workspace: { ...services.workspace, restoreWorkspace } }),
+    })
+    const request = { method: 'POST', path: '/api/workspaces/workspace-1', body: { action: 'restore' },
+      headers: { origin: 'https://test.invalid' } }
+    expect((await platform.handle({ ...request, headers: {} })).status).toBe(403)
+    expect(resolvePrincipal).not.toHaveBeenCalled()
+    for (const other of [
+      { ...request, method: 'GET' },
+      { ...request, path: '/api/workspaces/workspace-1/novels' },
+      { ...request, path: '/api/other/workspace-1' },
+      { ...request, body: { action: 'archive' } },
+      { ...request, headers: { ...request.headers, 'x-dsh-workspace-id': 'another' } },
+    ]) expect((await platform.handle(other)).status).toBe(401)
+    expect(restoreWorkspace).not.toHaveBeenCalled()
+    expect((await platform.handle(request)).status).toBe(200)
+    expect(restoreWorkspace).toHaveBeenCalledOnce()
+    expect(restoreWorkspace).toHaveBeenCalledWith(principal.workspaceId)
+  })
+
   it('rejects a client-selected workspace outside the authenticated principal', async () => {
     const controller = new NovelAuthoringHttpController(principal, {
       workspace: { createWorkspace: async () => 'w', listWorkspaces: async () => [], createNovel: async () => 'n' },
@@ -100,6 +130,41 @@ describe('NovelAuthoringHttpController', () => {
     const response = await controller.handle({ method: 'POST', path: '/api/proposals/p1/review', body: { decision: 'rejected' } })
     expect(response.status).toBe(200)
     expect(observed).toBe('workspace-1')
+  })
+
+  it.each(['foreign-proposal', 'missing-proposal'])('returns a uniform 404 for %s without changing review state', async (proposalId) => {
+    const db = serviceDatabase()
+    db.selects.push([])
+    const review = new ProposalReviewService(db.database, principal)
+    const lookup = vi.spyOn(review, 'review')
+    const controller = new NovelAuthoringHttpController(principal, {
+      ...proposalServices(async () => 'proposal'), review,
+    })
+    const reply = await controller.handle({
+      method: 'POST', path: `/api/proposals/${proposalId}/review`,
+      body: { decision: 'approved', workspaceId: 'foreign-workspace' },
+    })
+    expect(reply.status).toBe(404)
+    expect(reply.body).toBe('{"error":"not_found"}')
+    expect(lookup).toHaveBeenCalledWith({ workspaceId: principal.workspaceId, proposalId, decision: 'approved' })
+    expect(db.transactions).toBe(1)
+    expect(db.rollbacks).toBe(1)
+    expect(db.writes).toEqual([])
+  })
+
+  it.each([
+    { error: new Error('private database outage'), status: 500, code: 'authoring_unavailable' },
+    { error: new Error('proposal was not found: private database failure'), status: 500, code: 'authoring_unavailable' },
+    { error: 'proposal was not found', status: 500, code: 'authoring_unavailable' },
+    { error: new Error('owner or administrator permission is required'), status: 403, code: 'forbidden' },
+  ])('preserves review error mapping to $status for other failures', async ({ error, status, code }) => {
+    const deps = proposalServices(async () => 'proposal')
+    const controller = new NovelAuthoringHttpController(principal, {
+      ...deps, review: { ...deps.review, review: async () => { throw error } },
+    })
+    const reply = await controller.handle({ method: 'POST', path: '/api/proposals/proposal/review', body: { decision: 'approved' } })
+    expect(reply.status).toBe(status)
+    expect(reply.body).toBe(JSON.stringify({ error: code }))
   })
 
   it('starts the complete generation workflow without trusting the request workspace', async () => {

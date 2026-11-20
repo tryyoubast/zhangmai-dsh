@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-11-11-generation-worker-identity.md
+2026-11-11-generation-worker-identity.md: b0777b32db29c3bbb7d74290d9c0153ff958518a
+2026-11-11-generation-worker-identity.zh.md: de7718e06f0d54306041040a7891d6d7e349d18b

@@ -2125,6 +2125,36 @@
       "doc": "packages/client/ui-conversation/README.md",
       "symbol": "ComposerChainProps",
       "source": "packages/client/ui-conversation/src/client/contract/slots.ts"
+    },
+    {
+      "doc": "docs/subsystems/storage.md",
+      "symbol": "QueuedGenerationRequest",
+      "source": "packages/storage/novel-authoring/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/storage.md",
+      "symbol": "ProposalOperationErrorKind",
+      "source": "packages/storage/novel-authoring/src/proposal-error.ts"
+    },
+    {
+      "doc": "docs/subsystems/storage.md",
+      "symbol": "GenerationRunProposal",
+      "source": "packages/storage/novel-authoring/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/storage.md",
+      "symbol": "GenerationRunView",
+      "source": "packages/storage/novel-authoring/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/storage.md",
+      "symbol": "GenerationWorkerIdentity",
+      "source": "packages/storage/novel-authoring/src/worker-identity.ts"
+    },
+    {
+      "doc": "docs/subsystems/storage.md",
+      "symbol": "NovelGenerationWorkflowDependencies",
+      "source": "packages/storage/novel-authoring/src/workflow.ts"
     }
   ]
 }

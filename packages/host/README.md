@@ -1,15 +1,15 @@
 ---
-description: "Package map for the web GUI host half: the HTTP and SPA servers, workspace-directory picking implementations, the open-in-app launch routes, and the plugin inventory projection."
+description: "Package map for application hosts: HTTP and SPA servers, novel API and generation-worker assembly, workspace-directory picking, installed-app launch routes, and plugin inventory."
 kind: "package-group"
 ---
 
-# host/ — web-GUI host half
+# host/ — application hosts
 
 English | [中文](README.zh.md)
 
 ## Summary
 
-The `host/` group provides the web GUI's plain HTTP server, the SPA dist server that serves the built Web shell, the workspace-directory picking seam with its native, browse, and adaptive composition packages, the open-in-app application probe and launch routes, and the read-only plugin inventory projection. All eight packages are product packages; the browser transport lives in [`client/`](../client/README.md), and the composed application is [`apps/cli`](../../apps/cli/README.md) booting the [`dsh-base` bundle](../bundle/base/cordis.patch.yml) that serves the web app under `apps/web/`. The picker backends replace one another behind the shared seam.
+The `host/` group supplies HTTP application servers and their infrastructure. Web GUI packages serve the built browser shell, pick workspace directories, open installed applications, and project plugin inventory. The standalone novel host assembles authenticated authoring requests and a generation worker. Applications launch through [`apps/cli`](../../apps/cli/README.md); [`client/`](../client/README.md) owns browser transport.
 
 ## Table of Contents
 
@@ -22,7 +22,7 @@ The `host/` group provides the web GUI's plain HTTP server, the SPA dist server 
 <a id="packages"></a>
 ## Packages
 
-Eight packages play the host roles; each package README owns its contract and configuration.
+Each package README owns its runtime behavior and configuration.
 
 | Package | Role | ctx key |
 |---|---|---|
@@ -34,6 +34,7 @@ Eight packages play the host roles; each package README owns its contract and co
 | [`directory-picker-auto/`](directory-picker-auto/README.md) | Host-adaptive chooser that mounts the matching backend at boot | mounts a backend |
 | [`open-in-app/`](open-in-app/README.md) | Application probe, icon, and launch routes opening the workspace directory in an installed application | consumes `ctx.webServer` |
 | [`plugin-inventory/`](plugin-inventory/README.md) | Read-only projection of current Loader entries | Remote `pluginInventory/list` |
+| [`novel-host/`](novel-host/README.md) | Restricted novel API and serial Redis Stream worker assembly | supplies `ctx.platformHttpController` in API mode |
 
 -----
 

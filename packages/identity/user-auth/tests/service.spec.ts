@@ -53,6 +53,7 @@ describe('UserAuthService', () => {
     const result = await new UserAuthService(store, { now: () => new Date('2026-01-01T00:00:00Z') }).register(
       ' Writer@Example.com ', 'a sufficiently long password',
     )
+    expect(result.userId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u)
     expect(store.users.get(result.userId)?.status).toBe('pending')
     expect(store.verification?.tokenHash).toBe(hashToken(result.verificationToken))
     expect(store.verification?.tokenHash).not.toBe(result.verificationToken)

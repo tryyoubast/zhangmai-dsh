@@ -293,13 +293,13 @@ export class UserAuthService {
    * Create a pending account and a one-time verification token for the mail adapter.
    * @param email - Address stored for display and normalized for account uniqueness.
    * @param password - Plaintext password to validate and hash.
-   * @returns The new user ID and raw verification token, which the caller must neither persist nor log.
+   * @returns A random version-4 user UUID and raw verification token, which the caller must neither persist nor log.
    * @throws For invalid credentials, hashing failure, or store errors such as duplicate email registration.
    */
   async register(email: string, password: string): Promise<RegistrationResult> {
     const emailNormalized = normalizeEmail(email)
     const passwordHash = await hashPassword(password, this.options.pepper === undefined ? {} : { pepper: this.options.pepper })
-    const userId = cryptoRandomUuid()
+    const userId = randomUUID()
     const token = createOpaqueToken()
     const pendingUser = {
       id: userId,
@@ -543,6 +543,7 @@ export interface AuthHttpControllerOptions {
   readonly mail?: AuthMailProvider
   readonly security?: AuthSecurityControls
   readonly sessionResolver?: AuthHttpSessionResolver
+  /** Resolve workspace identity before login releases credentials and on authenticated identity reads. */
   readonly resolveIdentity?: (userId: string, sessionId: string) => Promise<AuthHttpIdentity | null>
   readonly accessToken?: {
     readonly privateKey: KeyObject | string
@@ -689,6 +690,7 @@ export class AuthHttpController {
     const result = await this.auth.login(email, password, clientType)
     if (result === null) return jsonResponse(401, { error: 'invalid_credentials' })
     if (clientType === 'browser') {
+      if (this.options.resolveIdentity !== undefined) await this.resolveIdentity(result.userId, result.sessionId)
       return jsonResponse(200, { authenticated: true }, { 'set-cookie': serializeHostSessionCookie(result.sessionToken) })
     }
     const identity = await this.resolveIdentity(result.userId, result.sessionId)
@@ -1185,10 +1187,6 @@ export function verifyAccessToken(
 // String.split produces a dense array, so a three-part JWT has all three strings.
 function isJwtParts(parts: string[]): parts is [string, string, string] {
   return parts.length === 3
-}
-
-function cryptoRandomUuid(): string {
-  return randomBytes(16).toString('hex').replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/u, '$1-$2-4$3-8$4-$5')
 }
 
 export { PostgresAuthStore, PostgresRefreshTokenStore } from './postgres.ts'

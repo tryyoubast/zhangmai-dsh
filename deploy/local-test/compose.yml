@@ -1,0 +1,214 @@
+name: dsh-local-test
+
+x-application: &application
+  build:
+    context: ../..
+    dockerfile: deploy/local-test/Dockerfile
+    args:
+      NODE_IMAGE: ${DSH_NODE_IMAGE:-node:24.14.0-bookworm-slim}
+  image: dsh-local-test-app:staging
+  user: ${DSH_LOCAL_UID:-1000}:${DSH_LOCAL_GID:-1000}
+  init: true
+  networks: [staging]
+  read_only: true
+  tmpfs: [/tmp]
+  volumes:
+    - ${DSH_LOCAL_STATE:-./.local}/home:/state/home
+  environment: &runtime-environment
+    DSH_HOME: /state/home
+    DSH_NOVEL_SECRET_DIRECTORY: /run/secrets
+    DSH_NOVEL_DATABASE_HOST: postgres
+    DSH_NOVEL_DATABASE_NAME: dsh_staging_test
+    DSH_NOVEL_REDIS_HOST: redis
+    DSH_NOVEL_SMTP_HOST: mailpit
+    DSH_NOVEL_ORIGIN: https://localhost:8443
+    DSH_NOVEL_PROVIDER_URL: ${DSH_NOVEL_PROVIDER_URL:-http://model:8081/v1}
+    DSH_NOVEL_PROVIDER_MODEL: ${DSH_NOVEL_PROVIDER_MODEL:-deepseek-chat}
+
+services:
+  postgres:
+    image: ${DSH_POSTGRES_IMAGE:-postgres:18}
+    environment:
+      POSTGRES_DB: dsh_staging_test
+      POSTGRES_USER: staging_admin
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres-password
+    secrets: [postgres-password]
+    volumes: [postgres-data:/var/lib/postgresql]
+    networks: [staging]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U staging_admin -d dsh_staging_test']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: ${DSH_REDIS_IMAGE:-redis:8-alpine}
+    command: [/bin/sh, -ec, 'exec redis-server --appendonly yes --requirepass "$$(cat /run/secrets/redis-password)"']
+    secrets: [redis-password]
+    volumes: [redis-data:/data]
+    networks: [staging]
+    healthcheck:
+      test: [CMD-SHELL, 'REDISCLI_AUTH="$$(cat /run/secrets/redis-password)" redis-cli ping']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  mailpit:
+    image: ${DSH_MAILPIT_IMAGE:-axllent/mailpit:v1.29}
+    command: [--disable-version-check]
+    ports: ['127.0.0.1:8025:8025']
+    environment:
+      MP_DATABASE: /data/mailpit.db
+      MP_MAX_MESSAGES: '1000'
+    volumes: [mailpit-data:/data]
+    networks: [staging]
+
+  model:
+    image: ${DSH_NODE_IMAGE:-node:24.14.0-bookworm-slim}
+    command: [node, /fixture/model.mjs]
+    volumes: [./model.mjs:/fixture/model.mjs:ro]
+    networks: [staging]
+    read_only: true
+
+  provider-check:
+    image: ${DSH_NODE_IMAGE:-node:24.14.0-bookworm-slim}
+    profiles: [tools]
+    command: [node, /fixture/provider-check.mjs]
+    volumes: [./provider-check.mjs:/fixture/provider-check.mjs:ro]
+    networks: [staging]
+    read_only: true
+    environment:
+      DSH_NOVEL_SECRET_DIRECTORY: /run/secrets
+      DSH_NOVEL_PROVIDER_MODEL: ${DSH_NOVEL_PROVIDER_MODEL:-deepseek-chat}
+    secrets: [deepseek-api-key]
+
+  provision:
+    <<: *application
+    profiles: [tools]
+    command: [node, deploy/local-test/provision.mjs]
+    environment:
+      DSH_NOVEL_SECRET_DIRECTORY: /run/secrets
+      DSH_NOVEL_DATABASE_HOST: postgres
+    secrets: [postgres-password, migrator-password, auth-password, app-password, worker-password, service-password, refresh-auth-password, refresh-migrator-password]
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  api:
+    <<: *application
+    command: [node, apps/cli/lib/bin.js, --profile, novel-api]
+    environment:
+      <<: *runtime-environment
+      DSH_NOVEL_MODE: api
+    secrets:
+      - auth-password
+      - app-password
+      - service-password
+      - redis-password
+      - source: access-private
+        target: access-private.pem
+      - source: access-public
+        target: access-public.pem
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      mailpit: {condition: service_started}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8080/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+
+  worker:
+    <<: *application
+    command: [node, apps/cli/lib/bin.js, --profile, novel-worker]
+    environment:
+      <<: *runtime-environment
+      DSH_NOVEL_MODE: worker
+    secrets: [worker-password, redis-password, deepseek-api-key]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+
+  caddy:
+    image: ${DSH_CADDY_IMAGE:-caddy:2-alpine}
+    ports: ['127.0.0.1:8443:443']
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [staging]
+    depends_on:
+      api: {condition: service_healthy}
+
+  regression:
+    <<: *application
+    profiles: [tools]
+    tmpfs: [/tmp, '/workspace/node_modules/.vite-temp:mode=1777', '/workspace/node_modules/.vite:mode=1777']
+    command: [node, --import, tsx/esm, deploy/local-test/postgres.mjs]
+    environment:
+      DSH_NOVEL_DATABASE_HOST: postgres
+      DSH_NOVEL_SECRET_DIRECTORY: /run/secrets
+    secrets: [refresh-auth-password, refresh-migrator-password]
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  inspection:
+    <<: *application
+    profiles: [tools]
+    entrypoint: [node, deploy/local-test/inspect.mjs]
+    command: []
+    volumes: [./inspect.mjs:/workspace/deploy/local-test/inspect.mjs:ro]
+    environment:
+      DSH_NOVEL_DATABASE_HOST: postgres
+      DSH_NOVEL_SECRET_DIRECTORY: /run/secrets
+    secrets: [migrator-password]
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  staging-regression:
+    <<: *application
+    profiles: [tools]
+    tmpfs: [/tmp, '/workspace/node_modules/.vite-temp:mode=1777', '/workspace/node_modules/.vite:mode=1777']
+    command: [node, deploy/local-test/postgres.mjs, --staging]
+    environment:
+      DSH_NOVEL_DATABASE_HOST: postgres
+      DSH_NOVEL_SECRET_DIRECTORY: /run/secrets
+    secrets: [worker-password, app-password, service-password, migrator-password]
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  upgrade-regression:
+    <<: *application
+    profiles: [tools]
+    tmpfs: [/tmp, '/workspace/node_modules/.vite-temp:mode=1777', '/workspace/node_modules/.vite:mode=1777']
+    command: [node, deploy/local-test/upgrade-postgres.mjs]
+    environment:
+      DSH_NOVEL_DATABASE_HOST: postgres
+      DSH_NOVEL_SECRET_DIRECTORY: /run/secrets
+    secrets: [postgres-password, migrator-password, app-password, service-password, worker-password]
+    depends_on:
+      postgres: {condition: service_healthy}
+
+networks:
+  staging: {}
+
+volumes:
+  postgres-data: {}
+  redis-data: {}
+  mailpit-data: {}
+  caddy-data: {}
+  caddy-config: {}
+
+secrets:
+  postgres-password: {file: '${DSH_LOCAL_STATE:-./.local}/secrets/postgres-password'}
+  migrator-password: {file: '${DSH_LOCAL_STATE:-./.local}/secrets/migrator-password'}
+  auth-password: {file: '${DSH_LOCAL_STATE:-./.local}/secrets/auth-password'}
+  app-password: {file: '${DSH_LOCAL_STATE:-./.local}/secrets/app-password'}
+  worker-password: {file: '${DSH_LOCAL_STATE:-./.local}/secrets/worker-password'}
+  service-password: {file: '${DSH_LOCAL_STATE:-./.local}/secrets/service-password'}
+  refresh-auth-password: {file: '${DSH_LOCAL_STATE:-./.local}/secrets/refresh-auth-password'}
+  refresh-migrator-password: {file: '${DSH_LOCAL_STATE:-./.local}/secrets/refresh-migrator-password'}
+  redis-password: {file: '${DSH_LOCAL_STATE:-./.local}/secrets/redis-password'}
+  access-private: {file: '${DSH_LOCAL_STATE:-./.local}/secrets/access-private.pem'}
+  access-public: {file: '${DSH_LOCAL_STATE:-./.local}/secrets/access-public.pem'}
+  deepseek-api-key: {file: '${DSH_LOCAL_STATE:-./.local}/secrets/deepseek-api-key'}

@@ -1,6 +1,7 @@
 /** Coordinate persisted run lifecycle, model generation, optional enrichment, and draft materialization. */
 import {
   validateNovelGenerationAdapterResult,
+  type DraftGenerationInput,
   type DraftGenerationResult,
   type LongformGenerationService,
   type NovelGenerationAdapterResult,
@@ -25,7 +26,7 @@ export interface NovelGenerationEnrichmentAdapter {
 
 /** Injected seams for coordinating run lifecycle, generation, and materialization. */
 export interface NovelGenerationWorkflowDependencies {
-  readonly authoring: Pick<NovelAuthoringService, 'createGenerationRun' | 'getGenerationRunStatus' | 'updateGenerationRunStatus'> | Pick<NovelAuthoringService, 'createGenerationRun' | 'updateGenerationRunStatus'>
+  readonly authoring: Pick<NovelAuthoringService, 'createGenerationRun' | 'updateGenerationRunStatus'> & Partial<Pick<NovelAuthoringService, 'getGenerationRunStatus' | 'getQueuedGenerationRequest'>>
   readonly generation: Pick<LongformGenerationService, 'generate' | 'findPersistedResult'>
   readonly enrichment?: NovelGenerationEnrichmentAdapter
   readonly materialization: Pick<GenerationMaterializationService, 'materialize'>
@@ -63,7 +64,7 @@ export class NovelGenerationWorkflowService {
       instruction: input.instruction,
       contextLimit: input.limit,
     })
-    const existingStatus = 'getGenerationRunStatus' in this.dependencies.authoring
+    const existingStatus = this.dependencies.authoring.getGenerationRunStatus !== undefined
       ? await this.dependencies.authoring.getGenerationRunStatus({ workspaceId: input.workspaceId, generationRunId: runId })
       : undefined
     if (existingStatus === 'failed' || existingStatus === 'cancelled') {
@@ -87,6 +88,39 @@ export class NovelGenerationWorkflowService {
       generationRunId: runId,
       status: 'running',
     })
+    return this.execute({ ...input, generationRunId: runId })
+  }
+
+  /**
+   * Claim and execute the durable request without recreating its browser-owned run.
+   * The claim and status readers are required; claiming binds the worker and commits running state atomically.
+   * @param input - Workspace and queued run locator supplied by the worker message.
+   * @returns Generated output and persisted target/proposal IDs after completion.
+   * @throws For terminal runs, unavailable claims, mismatched request scope, or generation and writer failures.
+   * Terminal duplicates reject before model execution or materialization.
+   * Callers can inspect getGenerationRunStatus before acknowledging them.
+   */
+  async executeQueued(input: {
+    readonly workspaceId: string
+    readonly generationRunId: string
+  }): Promise<NovelGenerationWorkflowResult> {
+    const authoring = this.dependencies.authoring
+    if (authoring.getGenerationRunStatus === undefined || authoring.getQueuedGenerationRequest === undefined) {
+      throw new Error('queued generation requires claim and status readers')
+    }
+    const status = await authoring.getGenerationRunStatus(input)
+    if (status === 'completed' || status === 'failed' || status === 'cancelled') {
+      throw new Error(`generation run is ${status}`)
+    }
+    const request = await authoring.getQueuedGenerationRequest(input)
+    if (request.workspaceId !== input.workspaceId || request.generationRunId !== input.generationRunId) {
+      throw new Error('generation request scope mismatch')
+    }
+    return this.execute({ ...request, limit: request.contextLimit })
+  }
+
+  private async execute(input: DraftGenerationInput): Promise<NovelGenerationWorkflowResult> {
+    const runId = input.generationRunId
     try {
       const generation = await this.dependencies.generation.generate({
         workspaceId: input.workspaceId,

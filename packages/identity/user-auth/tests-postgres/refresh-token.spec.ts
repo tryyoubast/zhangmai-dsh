@@ -98,11 +98,12 @@ describe('PostgreSQL refresh-token rotation', () => {
 
   it('rejects a non-superuser bootstrap before changing database objects', async () => {
     const config = postgresTestEnvironment()
+    const before = (await fixture.control.query('SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id')).rows
     await expect(provisionPostgresTestDatabase({
       DATABASE_TEST_URL: config.runtimeUrl, DATABASE_MIGRATION_URL: config.migrationUrl,
       TEST_DATABASE_BOOTSTRAP_URL: config.runtimeUrl,
     })).rejects.toThrow('bootstrap requires a PostgreSQL superuser login')
-    expect((await fixture.control.query('SELECT count(*)::integer AS total FROM drizzle.__drizzle_migrations')).rows).toEqual([{ total: 14 }])
+    expect((await fixture.control.query('SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id')).rows).toEqual(before)
   })
 
   it('settles simultaneous use of one token as one rotation and one reuse without rejection', async () => {
