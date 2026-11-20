@@ -2,11 +2,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { load } from 'js-yaml'
 import { describe, expect, it } from 'vitest'
-
-function record(value: unknown): Record<string, unknown> {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('Expected Compose mapping')
-  return value as Record<string, unknown>
-}
+import { yamlMapping as record } from './tests/yaml-mapping.ts'
 
 const compose = record(load(readFileSync(resolve(import.meta.dirname, '../deploy/local-test/compose.yml'), 'utf8')))
 const services = record(compose.services)

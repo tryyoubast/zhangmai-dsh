@@ -1,17 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { createDatabase, sql, withRequestContext, type DshDatabase } from '@deepseek-ai/dsh-database-postgres'
+import { sql, withRequestContext, type DshDatabase } from '@deepseek-ai/dsh-database-postgres'
 import type { AuthPrincipal } from '@deepseek-ai/dsh-user-auth'
 import { PostgresNovelContextRepository } from '../src/context-repository.ts'
-import { postgresTestEnvironment } from '../../../identity/user-auth/tests-postgres/environment.ts'
-import { TestPgClient } from '../../../identity/user-auth/tests-postgres/pg-client.ts'
+import { novelPostgresFixture } from './fixture.ts'
 
-const config = postgresTestEnvironment()
-const control = new TestPgClient({ connectionString: config.migrationUrl })
-const database = createDatabase({
-  url: config.runtimeUrl, runtimeRole: 'dsh_worker_runtime', maxConnections: 1,
-  idleTimeoutMs: 5_000, connectionTimeoutMs: 5_000, applicationName: `context-retrieval-${randomUUID()}`,
-})
+const { control, connectControl, runtime } = novelPostgresFixture()
+const database = runtime('dsh_worker_runtime', 'context-retrieval')
 const userId = randomUUID()
 const sessionId = randomUUID()
 const workspaceId = randomUUID()
@@ -37,14 +32,7 @@ const repository = new PostgresNovelContextRepository(database, principal)
 const instruction = 'Continue the saved Moon Harbor story context. Return only JSON with records: one new character named Lantern Courier (targetType characters, name, summary), one new location named Lantern Pier (targetType locations, name, summary), and chapter 2 (targetType chapters, chapterNo:2, title:Moon Harbor Continuation, summary). Keep the combined prose under 120 words. Drafts only; do not update or publish existing records.'
 
 beforeAll(async () => {
-  await control.connect()
-  const login = await control.query('SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = session_user')
-  expect(login.rows[0]).toEqual({ rolsuper: false, rolbypassrls: false })
-  const memberships = await control.query(`SELECT rolname FROM pg_roles
-    WHERE rolname <> session_user AND pg_has_role(session_user, oid, 'MEMBER')`)
-  expect(memberships.rows).toEqual([{ rolname: 'dsh_migrator' }])
-  await control.query('SET ROLE dsh_migrator')
-  await control.query("SET statement_timeout = '15s'")
+  await connectControl()
   await control.query(`INSERT INTO auth.users(id,email,email_normalized,password_hash,status,password_changed_at,email_verified_at)
     VALUES ($1,$2,$2,'fixture','active',now(),now())`, [userId, `${userId}@test.invalid`])
   await control.query(`INSERT INTO auth.sessions(id,user_id,token_hash,client_type,expires_at,last_seen_at)

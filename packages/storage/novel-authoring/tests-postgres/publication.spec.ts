@@ -148,6 +148,25 @@ async function publishedPair() {
   return { f, id, initial }
 }
 
+async function approvedThirdCharacterVersion() {
+  const { f, id, initial } = await publishedPair()
+  await control.query("UPDATE ai.generation_runs SET agent_principal_id='novel-worker' WHERE id=$1", [f.run])
+  const p = await proposal(f, 'characters', id, { ...initial, name: 'Third' }, 2)
+  await approve(f, p)
+  return { f, id, initial, p }
+}
+
+async function insertWorkerCandidate(f: Fixture, candidate: string, id: string, content: Record<string, unknown>) {
+  await worker.query(`INSERT INTO ai.generation_proposals(id,workspace_id,novel_id,generation_run_id,target_type,target_id,operation,base_version_no,proposed_content,validation_result,status,idempotency_key)
+    VALUES($1,$2,$3,$4,'characters',$5,'update',2,$6,'{}','draft',$7)`, [candidate, f.workspace, f.novel, f.run, id, content, randomUUID()])
+}
+
+async function expectStaleCandidate(f: Fixture, candidate: string) {
+  expect((await control.query('SELECT status,version_no FROM novel.character_versions WHERE source_id=$1', [candidate])).rows).toEqual([{ status: 'draft', version_no: 3 }])
+  await approve(f, candidate)
+  await expect(publish(f, candidate)).rejects.toMatchObject({ code: 'P2003' })
+}
+
 describe('independent proposal candidates using restricted PostgreSQL roles', () => {
   it.each(entities)('%s publishes create/update and appends a complete rollback snapshot', async (table, versions, parent) => {
     const f = await seed(), id = await target(f, table), initial = await payload(table, id)
@@ -373,10 +392,7 @@ describe('independent proposal candidates using restricted PostgreSQL roles', ()
   })
 
   it.each(['publish', 'rollback'] as const)('allows candidate creation while %s holds a non-key target lock', async (operation) => {
-    const { f, id, initial } = await publishedPair()
-    await control.query("UPDATE ai.generation_runs SET agent_principal_id='novel-worker' WHERE id=$1", [f.run])
-    const p = await proposal(f, 'characters', id, { ...initial, name: 'Third' }, 2)
-    await approve(f, p)
+    const { f, id, initial, p } = await approvedThirdCharacterVersion()
     const locked = barrier(), release = barrier()
     const holding = context(service, f, async () => {
       if (operation === 'publish') await publishStatement(service, f, p)
@@ -386,24 +402,17 @@ describe('independent proposal candidates using restricted PostgreSQL roles', ()
     await locked.promise
     const candidate = randomUUID()
     try {
-      await workerContext(f, () => worker.query(`INSERT INTO ai.generation_proposals(id,workspace_id,novel_id,generation_run_id,target_type,target_id,operation,base_version_no,proposed_content,validation_result,status,idempotency_key)
-        VALUES($1,$2,$3,$4,'characters',$5,'update',2,$6,'{}','draft',$7)`, [candidate, f.workspace, f.novel, f.run, id, initial, randomUUID()]))
+      await workerContext(f, () => insertWorkerCandidate(f, candidate, id, initial))
     } finally { release.release() }
     await holding
-    expect((await control.query('SELECT status,version_no FROM novel.character_versions WHERE source_id=$1', [candidate])).rows).toEqual([{ status: 'draft', version_no: 3 }])
-    await approve(f, candidate)
-    await expect(publish(f, candidate)).rejects.toMatchObject({ code: 'P2003' })
+    await expectStaleCandidate(f, candidate)
   })
 
   it.each(['publish', 'rollback'] as const)('allows %s while a new candidate holds an uncommitted foreign key reference', async (operation) => {
-    const { f, id, initial } = await publishedPair()
-    await control.query("UPDATE ai.generation_runs SET agent_principal_id='novel-worker' WHERE id=$1", [f.run])
-    const p = await proposal(f, 'characters', id, { ...initial, name: 'Third' }, 2)
-    await approve(f, p)
+    const { f, id, initial, p } = await approvedThirdCharacterVersion()
     const candidate = randomUUID(), inserted = barrier(), release = barrier()
     const holding = workerContext(f, async () => {
-      await worker.query(`INSERT INTO ai.generation_proposals(id,workspace_id,novel_id,generation_run_id,target_type,target_id,operation,base_version_no,proposed_content,validation_result,status,idempotency_key)
-        VALUES($1,$2,$3,$4,'characters',$5,'update',2,$6,'{}','draft',$7)`, [candidate, f.workspace, f.novel, f.run, id, initial, randomUUID()])
+      await insertWorkerCandidate(f, candidate, id, initial)
       inserted.release(); await release.promise
     })
     await inserted.promise
@@ -412,9 +421,7 @@ describe('independent proposal candidates using restricted PostgreSQL roles', ()
       else await context(service, f, () => service.query("SELECT ai.rollback_entity_version($1,'characters',$2,1)", [f.workspace, id]))
     } finally { release.release() }
     await holding
-    expect((await control.query('SELECT status,version_no FROM novel.character_versions WHERE source_id=$1', [candidate])).rows).toEqual([{ status: 'draft', version_no: 3 }])
-    await approve(f, candidate)
-    await expect(publish(f, candidate)).rejects.toMatchObject({ code: 'P2003' })
+    await expectStaleCandidate(f, candidate)
   })
 
   it.each(['outlines', 'chapters', 'chapter_summaries', 'story_facts', 'timeline_events'])(

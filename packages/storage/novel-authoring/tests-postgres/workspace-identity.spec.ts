@@ -1,37 +1,21 @@
 import { randomUUID } from 'node:crypto'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { createDatabase, migrateDatabase, sql, withRequestContext } from '@deepseek-ai/dsh-database-postgres'
+import { migrateDatabase, sql, withRequestContext } from '@deepseek-ai/dsh-database-postgres'
 import { NovelAuthoringService, PostgresWorkspaceIdentity, WorkspaceAuthoringService } from '../src/index.ts'
 import { postgresTestEnvironment } from '../../../identity/user-auth/tests-postgres/environment.ts'
-import { TestPgClient } from '../../../identity/user-auth/tests-postgres/pg-client.ts'
+import { novelPostgresFixture, readForgedRollbackContext } from './fixture.ts'
 
-const config = postgresTestEnvironment()
-const control = new TestPgClient({ connectionString: config.migrationUrl })
-const databases = Array.from({ length: 2 }, () => createDatabase({
-  url: config.runtimeUrl, runtimeRole: 'dsh_app_runtime', maxConnections: 1,
-  idleTimeoutMs: 5_000, connectionTimeoutMs: 5_000, applicationName: `workspace-identity-${randomUUID()}`,
-}))
+const { control, connectControl, migrationUrl, runtime } = novelPostgresFixture()
+const databases = Array.from({ length: 2 }, () => runtime('dsh_app_runtime', 'workspace-identity'))
 const identities = databases.map(database => new PostgresWorkspaceIdentity(database))
 const identity = identities[0]!
 const database = databases[0]!
 const serviceConfig = postgresTestEnvironment({ ...process.env, DATABASE_TEST_URL: process.env.DATABASE_SERVICE_TEST_URL })
-const serviceDatabase = createDatabase({
-  url: serviceConfig.runtimeUrl, runtimeRole: 'dsh_service_runtime', maxConnections: 1,
-  idleTimeoutMs: 5_000, connectionTimeoutMs: 5_000, applicationName: `service-guard-${randomUUID()}`,
-})
+const serviceDatabase = runtime('dsh_service_runtime', 'service-guard', serviceConfig.runtimeUrl)
 
 beforeAll(async () => {
-  await migrateDatabase(config.migrationUrl)
-  await control.connect()
-  const login = await control.query('SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = session_user')
-  if (login.rows[0]?.rolsuper || login.rows[0]?.rolbypassrls) throw new Error('Test control requires a restricted migrator login')
-  const memberships = await control.query(`SELECT rolname FROM pg_roles
-    WHERE rolname <> session_user AND pg_has_role(session_user, oid, 'MEMBER')`)
-  if (memberships.rows.length !== 1 || memberships.rows[0]?.rolname !== 'dsh_migrator') {
-    throw new Error('Test control login must belong only to dsh_migrator')
-  }
-  await control.query('SET ROLE dsh_migrator')
-  await control.query("SET statement_timeout = '15s'")
+  await migrateDatabase(migrationUrl)
+  await connectControl()
 })
 
 afterAll(async () => {
@@ -192,14 +176,7 @@ describe('app draft publication guards under restricted PostgreSQL roles', () =>
   })
 
   it('keeps rollback inactive for an app user with forged rollback settings', async () => {
-    const workspaceId = randomUUID()
-    const result = await withRequestContext(database, { userId: randomUUID(), workspaceId, actorType: 'user' }, async (db) => {
-      await db.execute(sql`SELECT set_config('app.rollback_context', '1', true),
-        set_config('app.rollback_workspace_id', ${workspaceId}, true),
-        set_config('app.rollback_target_id', ${randomUUID()}, true),
-        set_config('app.rollback_target_type', 'characters', true)`)
-      return (await db.execute(sql`SELECT current_user AS role, novel.rollback_context_active() AS active`)).rows
-    })
+    const result = await readForgedRollbackContext(database)
     expect(result).toEqual([{ role: 'dsh_app_runtime', active: false }])
   })
 })

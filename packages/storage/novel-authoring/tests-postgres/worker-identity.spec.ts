@@ -1,30 +1,18 @@
 import { randomUUID } from 'node:crypto'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
-  createDatabase, migrateDatabase, sql, withRequestContext, type RequestDatabaseContext,
+  migrateDatabase, sql, withRequestContext, type RequestDatabaseContext,
 } from '@deepseek-ai/dsh-database-postgres'
 import * as authoring from '../src/index.ts'
-import { postgresTestEnvironment } from '../../../identity/user-auth/tests-postgres/environment.ts'
-import { TestPgClient } from '../../../identity/user-auth/tests-postgres/pg-client.ts'
+import { novelPostgresFixture, readForgedRollbackContext } from './fixture.ts'
 
-const config = postgresTestEnvironment()
-const control = new TestPgClient({ connectionString: config.migrationUrl })
-const database = createDatabase({
-  url: config.runtimeUrl, runtimeRole: 'dsh_worker_runtime', maxConnections: 1,
-  idleTimeoutMs: 5_000, connectionTimeoutMs: 5_000, applicationName: `worker-identity-${randomUUID()}`,
-})
+const { control, connectControl, migrationUrl, runtime } = novelPostgresFixture()
+const database = runtime('dsh_worker_runtime', 'worker-identity')
 const agentPrincipalId = 'novel-worker'
 
 beforeAll(async () => {
-  await migrateDatabase(config.migrationUrl)
-  await control.connect()
-  const login = await control.query('SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = session_user')
-  expect(login.rows[0]).toEqual({ rolsuper: false, rolbypassrls: false })
-  const memberships = await control.query(`SELECT rolname FROM pg_roles
-    WHERE rolname <> session_user AND pg_has_role(session_user, oid, 'MEMBER')`)
-  expect(memberships.rows).toEqual([{ rolname: 'dsh_migrator' }])
-  await control.query('SET ROLE dsh_migrator')
-  await control.query("SET statement_timeout = '15s'")
+  await migrateDatabase(migrationUrl)
+  await connectControl()
 })
 
 afterAll(async () => { await Promise.all([database.close(), control.end()]) })
@@ -251,14 +239,7 @@ describe('worker draft publication guards under restricted PostgreSQL roles', ()
   })
 
   it('keeps rollback inactive for a worker with forged user and rollback settings', async () => {
-    const workspaceId = randomUUID()
-    const result = await withRequestContext(database, { userId: randomUUID(), workspaceId, actorType: 'user' }, async (db) => {
-      await db.execute(sql`SELECT set_config('app.rollback_context', '1', true),
-        set_config('app.rollback_workspace_id', ${workspaceId}, true),
-        set_config('app.rollback_target_id', ${randomUUID()}, true),
-        set_config('app.rollback_target_type', 'characters', true)`)
-      return (await db.execute(sql`SELECT current_user AS role, novel.rollback_context_active() AS active`)).rows
-    })
+    const result = await readForgedRollbackContext(database)
     expect(result).toEqual([{ role: 'dsh_worker_runtime', active: false }])
   })
 

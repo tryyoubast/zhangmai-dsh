@@ -993,11 +993,7 @@ export class ProposalReviewService {
     if (input.workspaceId !== this.principal.workspaceId) throw new Error('workspace context mismatch')
     if (!canPerform(this.principal, 'content:write')) throw new Error('editor permission is required')
     await withRequestContext(this.database, this.context(), async (db) => {
-      const [proposal] = await db.select({ status: generationProposals.status, targetId: generationProposals.targetId })
-        .from(generationProposals)
-        .where(and(eq(generationProposals.workspaceId, input.workspaceId), eq(generationProposals.id, input.proposalId)))
-        .limit(1)
-        .for('update')
+      const proposal = await this.lockProposal(db, input)
       if (proposal === undefined || proposal.status !== 'draft' || proposal.targetId !== null) {
         throw new Error('proposal target cannot be bound')
       }
@@ -1026,11 +1022,7 @@ export class ProposalReviewService {
       throw new Error('editor permission is required')
     }
     await withRequestContext(this.database, this.context(), async (db) => {
-      const [proposal] = await db.select({ status: generationProposals.status, targetId: generationProposals.targetId })
-        .from(generationProposals)
-        .where(and(eq(generationProposals.workspaceId, input.workspaceId), eq(generationProposals.id, input.proposalId)))
-        .limit(1)
-        .for('update')
+      const proposal = await this.lockProposal(db, input)
       if (proposal === undefined) throw new Error('proposal was not found')
       assertProposalReviewTransition(proposal.status as ProposalStatus, input.decision, 'user')
       if (input.decision !== 'draft' && proposal.targetId === null) throw new Error('proposal target must be bound before review')
@@ -1042,6 +1034,15 @@ export class ProposalReviewService {
         publishedAt: null,
       }).where(and(eq(generationProposals.workspaceId, input.workspaceId), eq(generationProposals.id, input.proposalId)))
     })
+  }
+
+  private async lockProposal(db: DshDatabase, input: { readonly workspaceId: string; readonly proposalId: string }) {
+    const [proposal] = await db.select({ status: generationProposals.status, targetId: generationProposals.targetId })
+      .from(generationProposals)
+      .where(and(eq(generationProposals.workspaceId, input.workspaceId), eq(generationProposals.id, input.proposalId)))
+      .limit(1)
+      .for('update')
+    return proposal
   }
 
   private context(): {
